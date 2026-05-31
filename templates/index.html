@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Flood AI — ResNet18 + DeepLabv3+</title>
+<style>
+    body { margin: 0; font-family: "Segoe UI", sans-serif; background: #0b0f1a; color: #e0e0e0; }
+    header {
+        background: #111827; padding: 15px 30px; font-size: 20px; font-weight: bold;
+        color: #00e5ff; border-bottom: 1px solid #1f2937;
+    }
+    header a { float: right; font-size: 14px; color: #94a3b8; text-decoration: none; margin-top: 4px; }
+    .container { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; padding: 20px; }
+    .panel {
+        background: #111827; border-radius: 12px; padding: 15px;
+        box-shadow: 0 0 10px rgba(0, 255, 255, 0.05);
+    }
+    .panel h2 {
+        margin-top: 0; font-size: 18px; color: #00e5ff;
+        border-bottom: 1px solid #1f2937; padding-bottom: 5px;
+    }
+    #video { width: 100%; border-radius: 10px; border: 1px solid #1f2937; min-height: 240px; background: #000; }
+    .metric { margin: 8px 0; font-size: 14px; }
+    .value { font-size: 18px; font-weight: bold; color: #00ffa6; }
+    .status { padding: 5px 10px; border-radius: 6px; display: inline-block; font-size: 14px; }
+    .status.ok { background: #064e3b; color: #00ffa6; }
+    .status.alert { background: #7f1d1d; color: #ff4d4d; }
+    .models-row { display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+    .model-chip {
+        flex: 1; min-width: 140px; background: #1e293b; border-radius: 8px;
+        padding: 12px; font-size: 14px; border: 2px solid transparent; transition: 0.3s;
+    }
+    .model-chip.active { border-color: #22c55e; background: #14532d; }
+    .model-chip.primary { border-color: #00e5ff; box-shadow: 0 0 12px rgba(0, 229, 255, 0.35); }
+    .model-chip.switching { border-color: #f59e0b; animation: pulse 0.8s ease-in-out 2; }
+    @keyframes pulse { 50% { box-shadow: 0 0 14px #f59e0b; } }
+    .cam-hint { font-size: 12px; color: #64748b; margin-top: 6px; }
+    .metrics-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px;
+        font-size: 13px; margin-top: 8px;
+    }
+    .metrics-grid span { color: #94a3b8; }
+    .log-box {
+        height: 120px; overflow-y: auto; background: #020617; padding: 10px;
+        font-size: 12px; border-radius: 8px; font-family: monospace;
+    }
+</style>
+</head>
+<body>
+<header>
+    Flood detection — live camera (ResNet18 + DeepLabv3+)
+    <a href="/adaptive">Flow view</a>
+</header>
+<div class="container">
+    <div class="panel">
+        <h2>Live camera</h2>
+        <img id="video" src="" alt="live feed" />
+        <div class="cam-hint">
+            Device: <span id="camera-device">—</span> |
+            Overlay: <span id="overlay-mode">—</span>
+        </div>
+        <div class="cam-hint" id="gps-text"></div>
+    </div>
+    <div class="panel">
+        <h2>Inference</h2>
+        <div class="metric">Flood status: <span id="classification" class="value">—</span></div>
+        <div class="metric" style="font-size:12px;color:#64748b">
+            (follows active model — ResNet raw: <span id="raw-classification">—</span>)
+        </div>
+        <div class="metric">Flood ratio: <span id="flood_ratio" class="value">—</span></div>
+        <div class="metric">Status: <span id="status" class="status ok">NORMAL</span></div>
+        <div class="metric">Primary model: <span id="primary-model" class="value">—</span></div>
+        <h2>Models</h2>
+        <div class="models-row">
+            <div class="model-chip" id="chip-resnet"><strong>ResNet18</strong><br>Classifier</div>
+            <div class="model-chip" id="chip-deeplab"><strong>DeepLabv3+</strong><br>Segmentation + 4×4 grid</div>
+        </div>
+        <div class="metric">Last switch: <span id="model-switch">none</span></div>
+        <h2>Performance</h2>
+        <div class="metrics-grid">
+            <div><span>Latency</span><br><b id="latency">—</b> ms</div>
+            <div><span>FPS (smooth)</span><br><b id="fps">—</b></div>
+            <div><span>FPS (instant)</span><br><b id="instant-fps">—</b></div>
+            <div><span>Classify ms</span><br><b id="clf-ms">—</b></div>
+            <div><span>Segment ms</span><br><b id="seg-ms">—</b></div>
+            <div><span>Switch latency</span><br><b id="switch-ms">—</b></div>
+            <div><span>Memory</span><br><b id="memory-mb">—</b> MB</div>
+            <div><span>Peak memory</span><br><b id="peak-memory">—</b> MB</div>
+            <div><span>CPU</span><br><b id="cpu-pct">—</b> %</div>
+            <div><span>Peak CPU</span><br><b id="peak-cpu">—</b> %</div>
+            <div><span>Clf load</span><br><b id="clf-load">—</b> ms</div>
+            <div><span>Seg load</span><br><b id="seg-load">—</b> ms</div>
+        </div>
+        <h2>Power (tegrastats)</h2>
+        <div class="metrics-grid">
+            <div><span>Idle</span><br><b id="idle-power">—</b> W</div>
+            <div><span>Inference</span><br><b id="inference-power">—</b> W</div>
+            <div><span>Extra</span><br><b id="extra-power">—</b> W</div>
+            <div><span>Peak inference</span><br><b id="peak-power">—</b> W</div>
+        </div>
+    </div>
+    <div class="panel" style="grid-column: span 2;">
+        <h2>Log</h2>
+        <div id="logs" class="log-box"></div>
+    </div>
+</div>
+<script src="/static/scripts.js"></script>
+</body>
+</html>

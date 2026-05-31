@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Flood models — ResNet18 + DeepLabv3+</title>
+    <style>
+        body { background: #0a0f1c; color: white; font-family: "Segoe UI", sans-serif; text-align: center; margin: 0; padding: 20px; }
+        .container { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
+        .block { padding: 18px; border-radius: 12px; background: #1e293b; min-width: 130px; border: 2px solid transparent; transition: 0.35s; }
+        .active { background: #22c55e; color: #052e16; transform: scale(1.04); }
+        .primary { border-color: #00e5ff; box-shadow: 0 0 14px rgba(0,229,255,0.4); }
+        .switching { background: #f59e0b; color: #422006; }
+        .line { width: 36px; height: 4px; background: #64748b; align-self: center; }
+        #meta { margin: 24px auto; max-width: 720px; text-align: left; background: #111827; padding: 12px; border-radius: 8px; font-size: 13px; }
+        a { color: #38bdf8; }
+    </style>
+</head>
+<body>
+<h2>Live pipeline — camera → inference → model switch</h2>
+<p><a href="/">Dashboard</a></p>
+<div class="container">
+    <div class="block active" id="camera">USB camera</div>
+    <div class="line"></div>
+    <div class="block active" id="context">Context</div>
+    <div class="line"></div>
+    <div class="block" id="resnet">ResNet18</div>
+    <div class="block" id="deeplab">DeepLabv3+</div>
+    <div class="line"></div>
+    <div class="block active" id="engine">Inference</div>
+</div>
+<pre id="meta">Connecting…</pre>
+<script>
+function update(data) {
+    if (data.error) { document.getElementById("meta").innerText = data.error; return; }
+    const primary = data.primary_model || "resnet18";
+    document.getElementById("resnet").className = "block active" + (primary === "resnet18" ? " primary" : "");
+    document.getElementById("deeplab").className = "block active" + (primary === "deeplabv3plus" ? " primary" : "");
+    if (data.model_switches?.primary) {
+        const el = document.getElementById(primary === "resnet18" ? "resnet" : "deeplab");
+        el.classList.add("switching");
+        setTimeout(() => el.classList.remove("switching"), 1500);
+    }
+    document.getElementById("meta").innerText = JSON.stringify({
+        camera: data.camera,
+        primary_model: primary,
+        classification: data.classification?.label,
+        flood_ratio: data.segmentation?.flood_ratio,
+        model_switches: data.model_switches,
+        status: data.system?.status,
+    }, null, 2);
+}
+async function poll() {
+    const res = await fetch("/detect_flood", { method: "POST" });
+    update(await res.json());
+}
+poll();
+setInterval(poll, 1500);
+</script>
+</body>
+</html>

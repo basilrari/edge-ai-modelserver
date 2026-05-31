@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+ayush/
+
+# Runtime logs & metrics
+logs/*.csv
+logs/*.json
+logs/*.png
+
+# Training datasets (large — download separately)
+models/flood_classifier/dataset/
+models/flood_segmentation/**/dataset/
+models/flood_segmentation/**/JPEGImages/
+models/flood_segmentation/**/SegmentationClass/
+models/flood_segmentation/**/SegmentationObject/
+models/flood_segmentation/**/ImageSets/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.Zone.Identifier
+
+# Optional: YOLO weights auto-download via ultralytics
+# yolov8n.pt

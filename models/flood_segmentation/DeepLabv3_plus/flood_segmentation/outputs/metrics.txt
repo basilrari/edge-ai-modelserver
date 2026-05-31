@@ -1,0 +1,8 @@
+IoU: 0.7327
+Dice: 0.8457
+Accuracy: 0.8926
+Precision: 0.8123
+Recall: 0.8821
+Confusion Matrix:
+[[1176318  133755]
+ [  77351  578656]]
