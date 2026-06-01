@@ -10,6 +10,7 @@ ayush/
 logs/*.csv
 logs/*.json
 logs/*.png
+logs/*.jpg
 
 # Training datasets (large — download separately)
 models/flood_classifier/dataset/

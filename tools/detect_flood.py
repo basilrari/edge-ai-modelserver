@@ -7,7 +7,6 @@ import cv2
 import psutil
 import torch
 
-from core.camera_stream import CameraStream
 from core.flood_grid import draw_grid_overlay
 from core.model_manager import ModelManager
 from core.inference_engine import InferenceEngine
@@ -15,13 +14,13 @@ from core.context_evaluator import ContextEvaluator
 from core.model_selector import FloodModelSelector
 from core.power_monitor import PowerMonitor
 from core.runtime_profiler import RuntimeProfiler
+from core.shared_camera import get_camera as _get_shared_camera
 
 _model_manager = None
 _engine = None
 _context_evaluator = None
 _selector = None
 _power = None
-_camera = None
 
 _process = psutil.Process(os.getpid())
 _frame_count = 0
@@ -49,17 +48,13 @@ def _components():
 
 
 def _get_camera():
-    global _camera
-    if _camera is None:
-        _camera = CameraStream(device=os.environ.get("CAMERA_DEVICE"))
-    return _camera
+    return _get_shared_camera()
 
 
 def _display_name(model_key):
     return {"resnet18": "ResNet18", "deeplabv3plus": "DeepLabv3+"}.get(
         model_key, model_key
     )
-
 
 
 def _status_from_result(display_label, flood_ratio):
@@ -84,14 +79,14 @@ def _update_fps(total_inference_ms):
         _inference_fps_start = time.perf_counter()
 
 
-def detect_flood():
+def detect_flood(frame=None, encode_frame=True):
     global _frame_count, _peak_memory_mb, _peak_cpu_percent, _clf_load_ms, _seg_load_ms
 
     try:
         model_manager, engine, context_evaluator, selector, power = _components()
         total_start = time.perf_counter()
 
-        frame = _get_camera().get_frame()
+        frame = frame if frame is not None else _get_camera().get_frame()
         if frame is None:
             return {"error": "Failed to read frame from camera"}
 
@@ -160,8 +155,11 @@ def detect_flood():
         if show_grid:
             out_frame, grid_analysis = draw_grid_overlay(frame, mask)
 
-        _, buffer = cv2.imencode(".jpg", out_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
-        frame_base64 = base64.b64encode(buffer).decode("utf-8")
+        result_frame = out_frame
+        frame_base64 = None
+        if encode_frame:
+            _, buffer = cv2.imencode(".jpg", out_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+            frame_base64 = base64.b64encode(buffer).decode("utf-8")
 
         active = {
             "classifier": _display_name(FloodModelSelector.RESNET18),
@@ -212,7 +210,7 @@ def detect_flood():
             "peak_power_w": power_metrics["peak_inference_power_w"],
         }
 
-        return {
+        payload = {
             "classification": {
                 **clf_result,
                 "raw_label": raw_classification,
@@ -241,9 +239,13 @@ def detect_flood():
             "metrics": metrics,
             "power": power_metrics,
             "log": log,
-            "frame_base64": frame_base64,
-            "frame": frame_base64,
         }
+        if encode_frame:
+            payload["frame_base64"] = frame_base64
+            payload["frame"] = frame_base64
+        else:
+            payload["_out_frame"] = result_frame
+        return payload
 
     except Exception as e:
         print("Exception:", str(e))

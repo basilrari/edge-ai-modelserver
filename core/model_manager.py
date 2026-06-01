@@ -158,7 +158,10 @@ class ModelManager:
                     "Loading YOLOv8 model..."
                 )
 
-                model = YOLO("yolov8n.pt")
+                model_path = self.base_dir / "yolov8n.pt"
+                if not model_path.exists():
+                    model_path = Path("yolov8n.pt")
+                model = YOLO(str(model_path))
 
                 return model
 
