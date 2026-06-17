@@ -21,7 +21,7 @@ class ContextEvaluator:
     # =========================================================
     def get_system_context(self):
         return {
-            "cpu_usage": float(psutil.cpu_percent(interval=0.1)),
+            "cpu_usage": float(psutil.cpu_percent(interval=None)),
             "memory_usage": float(psutil.virtual_memory().percent),
             "memory_available_gb": float(psutil.virtual_memory().available / (1024 ** 3)),
             "disk_usage": float(psutil.disk_usage("/").percent),

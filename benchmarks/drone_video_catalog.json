@@ -1,0 +1,160 @@
+{
+  "description": "Open-source aerial and flood footage for offline Jetson benchmarks.",
+  "reference_altitude_m": 50,
+  "combined_rescue_recommendation": {
+    "best_color": "youtube_cumbria_flood_rescue",
+    "best_ground_level_color": "chittur_river_rescue",
+    "best_color_short": "youtube_cal_oes_flood_prep",
+    "best_archive_bw": "archive_hollywood_flood_rescue_1938",
+    "notes": "Use COLOR clips for models trained on RGB flood imagery. B&W historical footage (Hollywood 1938) is poor for flood segmentation. Combined mode needs people + water in frame."
+  },
+  "videos": [
+    {
+      "id": "archive_hollywood_flood_rescue_1938",
+      "name": "Hollywood / LA-Long Beach floods 1938-39 — boats rescuing people (B&W only)",
+      "license": "Internet Archive / public domain historical footage",
+      "page": "https://archive.org/details/P-23D-E",
+      "archive_identifier": "P-23D-E",
+      "archive_file": "P-23D-E.mp4",
+      "tags": ["flood", "rescue", "people", "boats", "urban", "combined-rescue"],
+      "duration_s": 215,
+      "resolution": "640x360",
+      "color": false,
+      "combined_rescue": true,
+      "human_detection_verified": true,
+      "flood_detection_verified": "weak",
+      "highlight_frames": "frame ~2000: up to 6 persons (B&W)",
+      "notes": "Not recommended — black & white; flood models trained on color RGB."
+    },
+    {
+      "id": "kherson_drone_rescue",
+      "name": "Kherson drone water delivery to flood victims (DRSG, June 2023) ★ COLOR",
+      "license": "Editorial/news (Guardian mirror); Reddit source — local testing only",
+      "page": "https://www.reddit.com/r/ukraine/comments/143arzq/drone_delivering_water_to_flood_victims/",
+      "youtube_url": "https://www.youtube.com/watch?v=9yAuh2O4kDM",
+      "tags": ["flood", "rescue", "drone", "ukraine", "color", "aerial"],
+      "duration_s": 41,
+      "resolution": "640x360",
+      "combined_rescue": true,
+      "color": true,
+      "human_detection_verified": false,
+      "flood_detection_verified": true,
+      "highlight_frames": "flood_ratio 0.8+ on submerged-house segments; humans often 0 (top-down, small targets)",
+      "notes": "Same event as r/ukraine post. File: benchmarks/videos/kherson_drone_rescue.mp4"
+    },
+    {
+      "id": "chittur_river_rescue",
+      "name": "Children rescued from Chittur river flood — Kerala, India (MediaOne TV) ★ COLOR",
+      "license": "News/editorial — local benchmark testing only",
+      "page": "https://www.youtube.com/watch?v=SctIWHOyvHI",
+      "youtube_url": "https://www.youtube.com/watch?v=SctIWHOyvHI",
+      "tags": ["flood", "rescue", "people", "river", "combined-rescue", "color", "ground-level"],
+      "duration_s": 222,
+      "resolution": "640x360",
+      "combined_rescue": true,
+      "color": true,
+      "human_detection_verified": true,
+      "flood_detection_verified": true,
+      "highlight_frames": "frame ~3700: up to 10 humans; flood_ratio 0.27–0.64 across clip",
+      "notes": "Ground-level news footage (not drone). Strong combined-rescue benchmark. File: benchmarks/videos/chittur_river_rescue.mp4"
+    },
+    {
+      "id": "youtube_cumbria_flood_rescue",
+      "name": "Cumbria flood rescues — Storm Desmond 2015 (YouTube CC BY) ★ COLOR",
+      "license": "Creative Commons Attribution (reuse allowed)",
+      "page": "https://www.youtube.com/watch?v=TxniKN7jL8U",
+      "youtube_url": "https://www.youtube.com/watch?v=TxniKN7jL8U",
+      "tags": ["flood", "rescue", "people", "modern", "combined-rescue", "color"],
+      "duration_s": 458,
+      "resolution": "640x360",
+      "combined_rescue": true,
+      "color": true,
+      "human_detection_verified": true,
+      "flood_detection_verified": true,
+      "highlight_frames": "frame ~100: 10 persons; many segments flood_ratio 0.3–0.8",
+      "notes": "BEST color combined-rescue clip. Downloaded: benchmarks/videos/youtube_cumbria_flood_rescue.mp4"
+    },
+    {
+      "id": "youtube_cal_oes_flood_prep",
+      "name": "Flood Preparedness — Cal OES (YouTube CC BY)",
+      "license": "Creative Commons Attribution",
+      "page": "https://www.youtube.com/watch?v=rMuIEvaeQuU",
+      "youtube_url": "https://www.youtube.com/watch?v=rMuIEvaeQuU",
+      "tags": ["flood", "education", "people"],
+      "duration_s": 81,
+      "combined_rescue": "partial",
+      "notes": "Shorter CC clip; less dramatic than Cumbria/Hollywood rescue."
+    },
+    {
+      "id": "archive_mississippi_flood_1927",
+      "name": "Mississippi River Flood 1927 — evacuations (Internet Archive)",
+      "license": "Public domain (US National Archives)",
+      "page": "https://archive.org/details/mississippi_flood_1927",
+      "archive_identifier": "mississippi_flood_1927",
+      "archive_file": "mississippi_flood_1927_512kb.mp4",
+      "tags": ["flood", "rescue", "people", "historical"],
+      "duration_s": 1062,
+      "resolution": "320x240",
+      "combined_rescue": true,
+      "notes": "People + animals evacuated; 17 min, low resolution. Use --render-stride 3+."
+    },
+    {
+      "id": "archive_flood_airfield",
+      "name": "Aerial massive flooding at airfield (Internet Archive)",
+      "license": "Internet Archive item — verify item page",
+      "page": "https://archive.org/details/AerialMassiveFloodingHitsRussianAirfield",
+      "archive_identifier": "AerialMassiveFloodingHitsRussianAirfield",
+      "archive_file": "Aerial- Massive flooding hits Russian airfield.mp4",
+      "tags": ["flood", "aerial", "disaster"],
+      "combined_rescue": false,
+      "notes": "Great flood segmentation; no visible humans (human_count stays 0)."
+    },
+    {
+      "id": "archive_flood_1955",
+      "name": "1955 California flood footage (Internet Archive, public domain)",
+      "license": "Public domain (California Revealed)",
+      "page": "https://archive.org/details/car_000160",
+      "archive_identifier": "car_000160",
+      "archive_file": "car_000160_access.HD.mp4",
+      "tags": ["flood", "historical"],
+      "combined_rescue": false,
+      "notes": "~16 min; river/highway damage; unlikely human detections."
+    },
+    {
+      "id": "synthetic_flood_bench",
+      "name": "Synthetic flood-colored test pattern (local)",
+      "license": "Generated locally",
+      "synthetic": true,
+      "synthetic_frames": 120,
+      "tags": ["synthetic", "smoke-test"],
+      "combined_rescue": false,
+      "notes": "python3 tools/download_drone_videos.py --synthetic"
+    },
+    {
+      "id": "pexels_flood_city_3188992",
+      "name": "Drone flood city (Pexels)",
+      "license": "Pexels License",
+      "page": "https://www.pexels.com/video/drone-footage-of-a-flooded-city-3188992/",
+      "pexels_only": true,
+      "direct_download": "https://videos.pexels.com/video-files/3188992/3188992-hd_1280_720_30fps.mp4",
+      "tags": ["flood", "urban", "aerial"],
+      "combined_rescue": "maybe",
+      "notes": "May include street-level people; browser download (Pexels 403 on Jetson)."
+    },
+    {
+      "id": "youtube_cc_search",
+      "name": "YouTube Creative Commons search",
+      "license": "Varies",
+      "manual_only": true,
+      "page": "https://www.youtube.com/results?search_query=flood+rescue+drone&sp=EgIwAQ%253D%253D",
+      "tags": ["flood", "rescue", "drone"]
+    }
+  ],
+  "suggested_altitudes_m": [25, 50, 75, 100, 120],
+  "tradeoff_notes": {
+    "altitude": "Higher AGL → wider ground coverage per frame, coarser GSD.",
+    "simulation": "benchmark scales frame resolution by REF_ALTITUDE/altitude then letterboxes to 640x480.",
+    "coverage": "ground_coverage_factor = altitude / 50m in reports.",
+    "combined_rescue": "Prefer ground-level or low-altitude clips with people in/near water; pure aerial top-down often yields human_count=0."
+  }
+}

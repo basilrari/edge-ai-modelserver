@@ -6,6 +6,13 @@ __pycache__/
 venv/
 ayush/
 
+# Dashboard offline uploads + per-video export folders
+uploads/
+
+# Benchmark media & generated results (large binaries, regenerate on-device)
+benchmarks/videos/
+benchmarks/results/
+
 # Runtime logs & metrics
 logs/*.csv
 logs/*.json
@@ -26,5 +33,6 @@ models/flood_segmentation/**/ImageSets/
 .DS_Store
 *.Zone.Identifier
 
-# Optional: YOLO weights auto-download via ultralytics
-# yolov8n.pt
+# TensorRT engines & ONNX (built on Jetson, not committed)
+*.onnx
+*.engine

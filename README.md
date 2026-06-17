@@ -13,9 +13,39 @@ The server starts **idle** and only runs inference when an external LLM (or you 
 - **Combined mode** — one camera frame → flood grid + human boxes (e.g. person stuck in flood)
 - **Live dashboard** — task status, metrics, power, and annotated video at `/`
 - **WebSocket stream** — continuous inference while a tool is active (`WS /ws/live`)
-- **Power metrics** — idle / inference / extra power via tegrastats
+- **Power metrics** — idle / inference / extra power via tegrastats (background sampling)
+- **Performance** — parallel combined inference, optional TensorRT YOLO, CUDA streams
 
-## Quick start
+## Performance tuning (Jetson)
+
+Combined flood + human runs **in parallel** on separate CUDA streams by default.
+
+```bash
+# Export ALL TensorRT engines (YOLO + ResNet18 + DeepLab) — run once on Jetson
+bash tools/install_export_deps.sh
+python3 tools/export_tensorrt.py
+# Or flood models only (~10–20 min first time):
+python3 tools/export_flood_tensorrt.py
+
+# Produces:
+#   yolov8n.engine
+#   models/flood_classifier/flood_resnet18.engine
+#   models/flood_segmentation/.../flood_deeplab.engine
+```
+
+# Optional env toggles (defaults shown)
+export PARALLEL_COMBINED=1    # overlap flood + human GPU work
+export ASYNC_POWER=1          # non-blocking tegrastats
+export USE_TENSORRT=1         # load *.engine files when present
+export SMART_SEGMENT=1          # skip DeepLab when ResNet says dry (~3s saved)
+export SEG_INTERVAL=8           # occasional full segment refresh
+export YOLO_IMGSZ=320           # faster human detection
+export USE_TORCH_COMPILE=0    # set 1 to try torch.compile on flood models
+export CUDNN_BENCHMARK=1
+```
+
+Restart the server after exporting TensorRT engines.
+
 
 ```bash
 cd model_server
@@ -124,9 +154,11 @@ python3 tools/human_detection_live.py --frames 50 --conf 0.35
 
 Included in repo:
 
-- `yolov8n.pt` — human detection
-- `models/flood_classifier/flood_resnet18.pth` — flood classifier
-- `models/flood_segmentation/DeepLabv3_plus/flood_segmentation/best_model.pth` — flood segmenter
+- `yolov8n.pt` — human detection (export to `yolov8n.engine`)
+- `models/flood_classifier/flood_resnet18.pth` — export to `flood_resnet18.engine`
+- `models/flood_segmentation/DeepLabv3_plus/flood_segmentation/best_model.pth` — export to `flood_deeplab.engine`
+
+TensorRT `.engine` files are built on-device (not committed; run export script).
 
 Training datasets are excluded (see `.gitignore`).
 

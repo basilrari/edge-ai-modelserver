@@ -12,8 +12,12 @@ from core.model_manager import ModelManager
 from core.inference_engine import InferenceEngine
 from core.context_evaluator import ContextEvaluator
 from core.model_selector import FloodModelSelector
-from core.power_monitor import PowerMonitor
+from core.power_monitor import PowerMonitor, get_power_monitor
+from core.flood_grid import serialize_grid_analysis
+from core.video_geometry import REF_ALTITUDE_M
 from core.runtime_profiler import RuntimeProfiler
+from core.gpu_runtime import sync_all
+from core.segment_policy import should_run_segmentation
 from core.shared_camera import get_camera as _get_shared_camera
 
 _model_manager = None
@@ -21,6 +25,8 @@ _engine = None
 _context_evaluator = None
 _selector = None
 _power = None
+_last_flood_ratio = 0.0
+_last_mask = None
 
 _process = psutil.Process(os.getpid())
 _frame_count = 0
@@ -34,11 +40,18 @@ _clf_load_ms = 0.0
 _seg_load_ms = 0.0
 
 
+def reset_session() -> None:
+    """Called when live task switches — fresh frame counter + periodic segment on frame 1."""
+    global _frame_count, _last_flood_ratio, _last_mask
+    _frame_count = 0
+    _last_flood_ratio = 0.0
+    _last_mask = None
+
+
 def _components():
     global _model_manager, _engine, _context_evaluator, _selector, _power
     if _model_manager is None:
-        _power = PowerMonitor()
-        _power.calibrate_idle()
+        _power = get_power_monitor()
         _model_manager = ModelManager()
         _engine = InferenceEngine()
         _context_evaluator = ContextEvaluator()
@@ -55,6 +68,10 @@ def _display_name(model_key):
     return {"resnet18": "ResNet18", "deeplabv3plus": "DeepLabv3+"}.get(
         model_key, model_key
     )
+
+
+def _grid_for_api(grid_analysis):
+    return serialize_grid_analysis(grid_analysis)
 
 
 def _status_from_result(display_label, flood_ratio):
@@ -79,8 +96,9 @@ def _update_fps(total_inference_ms):
         _inference_fps_start = time.perf_counter()
 
 
-def detect_flood(frame=None, encode_frame=True):
+def detect_flood(frame=None, encode_frame=True, sample_power=True):
     global _frame_count, _peak_memory_mb, _peak_cpu_percent, _clf_load_ms, _seg_load_ms
+    global _last_flood_ratio, _last_mask
 
     try:
         model_manager, engine, context_evaluator, selector, power = _components()
@@ -103,28 +121,65 @@ def detect_flood(frame=None, encode_frame=True):
         if _clf_load_ms == 0.0:
             _clf_load_ms = (time.perf_counter() - t0) * 1000.0
 
-        clf_result = engine.run_classification(clf_model, frame)
-        classification_ms = clf_result.pop("inference_ms", 0.0)
-        raw_classification = clf_result.get("label", "unknown")
-        context["classification_label"] = raw_classification
+        # Fast path: classify first, skip DeepLab (~3s on Jetson) when scene is dry.
+        clf_only = engine.run_flood_pipeline(
+            clf_model, None, frame, run_segmenter=False
+        )
+        clf_pred = clf_only["clf_class_index"]
+        run_seg = should_run_segmentation(
+            _frame_count,
+            clf_pred,
+            _last_flood_ratio,
+            pre["run_segmenter"],
+        ) or _frame_count <= 1
 
-        flood_ratio = 0.0
-        segmentation_ms = 0.0
-        seg_result = {}
-        grid_analysis = None
-        mask = None
-
-        if pre["run_segmenter"]:
+        seg_model = None
+        if run_seg:
             t1 = time.perf_counter()
             seg_model = model_manager.load_flood_segmenter()
             if _seg_load_ms == 0.0:
                 _seg_load_ms = (time.perf_counter() - t1) * 1000.0
 
-            seg_result = engine.run_segmentation(seg_model, frame)
-            segmentation_ms = seg_result.pop("inference_ms", 0.0)
-            mask = seg_result.pop("mask", None)
-            flood_ratio = float(seg_result.get("flood_ratio", 0.0))
-            context["flood_ratio"] = flood_ratio
+        if run_seg and seg_model is not None:
+            seg_out = engine.run_segmentation(seg_model, frame)
+            segmentation_ms = float(seg_out.pop("inference_ms", 0.0))
+            mask = seg_out.pop("mask", None)
+            flood_ratio = float(seg_out.get("flood_ratio", 0.0))
+            flood_run = {
+                **clf_only,
+                "segmentation_ms": segmentation_ms,
+                "segmentation": {"flood_ratio": flood_ratio, **seg_out},
+                "mask": mask,
+                "flood_ratio": flood_ratio,
+                "segmentation_skipped": False,
+                "total_inference_ms": clf_only["classification_ms"] + segmentation_ms,
+            }
+        else:
+            flood_run = {
+                **clf_only,
+                "segmentation_ms": 0.0,
+                "segmentation": {},
+                "mask": _last_mask,
+                "flood_ratio": _last_flood_ratio,
+                "total_inference_ms": clf_only["classification_ms"],
+            }
+
+        if flood_run.get("mask") is not None:
+            _last_mask = flood_run["mask"]
+        if flood_run.get("flood_ratio", 0) > 0 or run_seg:
+            _last_flood_ratio = float(flood_run.get("flood_ratio", 0))
+        clf_result = flood_run["classification"]
+        classification_ms = flood_run["classification_ms"]
+        raw_classification = clf_result.get("label", "unknown")
+        context["classification_label"] = raw_classification
+
+        flood_ratio = flood_run["flood_ratio"]
+        segmentation_ms = flood_run["segmentation_ms"]
+        seg_result = flood_run["segmentation"]
+        mask = flood_run["mask"]
+        grid_analysis = None
+
+        context["flood_ratio"] = flood_ratio
 
         post = selector.select_models(context)
         post_switches = selector.apply_selection(post)
@@ -135,14 +190,14 @@ def detect_flood(frame=None, encode_frame=True):
         display_label = "Flooded" if seg_active else "Non-Flooded"
         status = _status_from_result(display_label, flood_ratio)
 
-        total_inference_ms = classification_ms + segmentation_ms
+        total_inference_ms = flood_run["total_inference_ms"]
         _update_fps(total_inference_ms)
         total_latency_ms = (time.perf_counter() - total_start) * 1000.0
         instant_fps = (
             1000.0 / total_inference_ms if total_inference_ms > 0 else 0.0
         )
 
-        torch.cuda.synchronize()
+        sync_all()
         power_metrics = power.record_inference_power()
 
         memory_mb = _process.memory_info().rss / (1024 * 1024)
@@ -153,7 +208,11 @@ def detect_flood(frame=None, encode_frame=True):
         out_frame = frame
         show_grid = seg_active and mask is not None
         if show_grid:
-            out_frame, grid_analysis = draw_grid_overlay(frame, mask)
+            out_frame, grid_analysis = draw_grid_overlay(
+                frame,
+                mask,
+                drone_altitude_m=REF_ALTITUDE_M,
+            )
 
         result_frame = out_frame
         frame_base64 = None
@@ -168,6 +227,8 @@ def detect_flood(frame=None, encode_frame=True):
             "classifier_key": FloodModelSelector.RESNET18,
             "segmenter_key": FloodModelSelector.DEEPLAB,
             "primary_key": primary,
+            "classifier_backend": getattr(model_manager, "clf_backend", "pytorch"),
+            "segmenter_backend": getattr(model_manager, "seg_backend", "pytorch"),
         }
 
         switch_log = []
@@ -193,6 +254,7 @@ def detect_flood(frame=None, encode_frame=True):
             "total_latency_ms": round(total_latency_ms, 2),
             "classification_ms": round(classification_ms, 2),
             "segmentation_ms": round(segmentation_ms, 2),
+            "segmentation_skipped": flood_run.get("segmentation_skipped", not run_seg),
             "model_switch_latency_ms": round(total_inference_ms, 2),
             "memory_mb": round(memory_mb, 2),
             "cpu_percent": round(cpu_percent, 2),
@@ -222,7 +284,7 @@ def detect_flood(frame=None, encode_frame=True):
                 **seg_result,
             },
             "segmentation_active": seg_active,
-            "grid": grid_analysis,
+            "grid": _grid_for_api(grid_analysis),
             "overlay_mode": "grid" if show_grid else "none",
             "context": context,
             "selected_models": selector.current_models.copy(),

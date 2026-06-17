@@ -5,7 +5,18 @@ from ultralytics import YOLO
 from pathlib import Path
 
 from core.cuda_runtime import require_cuda
+from core.perf_config import USE_TENSORRT, USE_TORCH_COMPILE, YOLO_IMGSZ
+from core.flood_models import build_deeplab_segmenter, build_resnet18_classifier
 from core.runtime_profiler import RuntimeProfiler
+
+CLF_ENGINE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "models/flood_classifier/flood_resnet18.engine"
+)
+SEG_ENGINE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "models/flood_segmentation/DeepLabv3_plus/flood_segmentation/flood_deeplab.engine"
+)
 
 
 class ModelManager:
@@ -34,6 +45,39 @@ class ModelManager:
             .resolve()
             .parents[1]
         )
+        self.human_imgsz = YOLO_IMGSZ
+        self.human_backend = "yolov8n"
+        self.clf_backend = "pytorch"
+        self.seg_backend = "pytorch"
+
+    def _maybe_compile(self, model, label: str):
+        if not USE_TORCH_COMPILE:
+            return model
+        try:
+            compiled = torch.compile(model, mode="reduce-overhead")
+            print(f"[{label}] torch.compile enabled")
+            return compiled
+        except Exception as exc:
+            print(f"[{label}] torch.compile skipped: {exc}")
+            return model
+
+    def _resolve_human_weights(self) -> tuple[Path, str]:
+        engine_path = self.base_dir / "yolov8n.engine"
+        pt_path = self.base_dir / "yolov8n.pt"
+        if USE_TENSORRT and engine_path.exists():
+            return engine_path, "tensorrt"
+        if pt_path.exists():
+            return pt_path, "pytorch"
+        return Path("yolov8n.pt"), "pytorch"
+
+    def _clf_weights_path(self) -> Path:
+        return (self.base_dir / "models/flood_classifier/flood_resnet18.pth").resolve()
+
+    def _seg_weights_path(self) -> Path:
+        return (
+            self.base_dir
+            / "models/flood_segmentation/DeepLabv3_plus/flood_segmentation/best_model.pth"
+        ).resolve()
 
     # =====================================================
     # PROFILE LOAD
@@ -153,16 +197,11 @@ class ModelManager:
         if "human_detector" not in self.models:
 
             def _load():
-
-                print(
-                    "Loading YOLOv8 model..."
-                )
-
-                model_path = self.base_dir / "yolov8n.pt"
-                if not model_path.exists():
-                    model_path = Path("yolov8n.pt")
-                model = YOLO(str(model_path))
-
+                print("Loading YOLOv8 model...")
+                weights, backend = self._resolve_human_weights()
+                model = YOLO(str(weights))
+                self.human_backend = backend
+                print(f"[HUMAN] backend={backend} weights={weights.name} imgsz={self.human_imgsz}")
                 return model
 
             self.models["human_detector"] = (
@@ -182,87 +221,23 @@ class ModelManager:
         if "flood_classifier" not in self.models:
 
             def _load():
+                print("Loading Flood Classification Model...")
+                engine_path = CLF_ENGINE_PATH
+                if USE_TENSORRT and engine_path.exists():
+                    from core.trt_runner import TrtFloodClassifier
 
-                print(
-                    "Loading Flood "
-                    "Classification Model..."
-                )
+                    self.clf_backend = "tensorrt"
+                    print(f"[CLASSIFIER] TensorRT {engine_path.name}")
+                    return TrtFloodClassifier(engine_path, "CLASSIFIER")
 
-                # -----------------------------------------
-                # MODEL PATH
-                # -----------------------------------------
-                model_path = (
+                weights = self._clf_weights_path()
+                if not weights.exists():
+                    raise FileNotFoundError(f"Classifier not found at {weights}")
 
-                    self.base_dir /
-
-                    "models/flood_classifier/"
-                    "flood_resnet18.pth"
-
-                ).resolve()
-
-                if not model_path.exists():
-
-                    raise FileNotFoundError(
-
-                        "Classifier model "
-                        f"not found at {model_path}"
-                    )
-
-                # -----------------------------------------
-                # IMPORT MODEL
-                # -----------------------------------------
-                from models.flood_classifier.realtime_flood_detection import Net
-
-                # -----------------------------------------
-                # CREATE MODEL
-                # -----------------------------------------
-                model = Net()
-
-                # -----------------------------------------
-                # LOAD WEIGHTS
-                # -----------------------------------------
-                state_dict = torch.load(
-                    model_path,
-                    map_location=self.device
-                )
-
-                # -----------------------------------------
-                # CLEAN STATE DICT
-                # -----------------------------------------
-                cleaned = {}
-
-                for k, v in state_dict.items():
-
-                    cleaned[
-                        k.replace("model.", "")
-                    ] = v
-
-                # -----------------------------------------
-                # LOAD PARAMETERS
-                # -----------------------------------------
-                model.load_state_dict(
-                    cleaned,
-                    strict=False
-                )
-
-                # -----------------------------------------
-                # MOVE TO CUDA
-                # -----------------------------------------
-                model.to(self.device)
-
-                model.eval()
-
-                # -----------------------------------------
-                # VERIFY DEVICE
-                # -----------------------------------------
-                print(
-                    "[CLASSIFIER] Running on:",
-                    next(
-                        model.parameters()
-                    ).device
-                )
-
-                return model
+                model = build_resnet18_classifier(weights, self.device)
+                self.clf_backend = "pytorch"
+                print("[CLASSIFIER] PyTorch", next(model.parameters()).device)
+                return self._maybe_compile(model, "CLASSIFIER")
 
             self.models["flood_classifier"] = (
 
@@ -282,93 +257,23 @@ class ModelManager:
         if "flood_segmenter" not in self.models:
 
             def _load():
+                print("Loading Flood Segmentation Model (DeepLabv3+ MobileNetV3)...")
+                engine_path = SEG_ENGINE_PATH
+                if USE_TENSORRT and engine_path.exists():
+                    from core.trt_runner import TrtFloodSegmenter
 
-                print(
-                    "Loading Flood "
-                    "Segmentation Model "
-                    "(MobileNetV3 DeepLabV3)..."
-                )
+                    self.seg_backend = "tensorrt"
+                    print(f"[SEGMENTER] TensorRT {engine_path.name}")
+                    return TrtFloodSegmenter(engine_path, "SEGMENTER")
 
-                # -----------------------------------------
-                # MODEL PATH
-                # -----------------------------------------
-                model_path = (
+                weights = self._seg_weights_path()
+                if not weights.exists():
+                    raise FileNotFoundError(f"Segmentation model not found at {weights}")
 
-                    self.base_dir /
-
-                    "models/flood_segmentation/"
-                    "DeepLabv3_plus/"
-                    "flood_segmentation/"
-                    "best_model.pth"
-
-                ).resolve()
-
-                if not model_path.exists():
-
-                    raise FileNotFoundError(
-
-                        "Segmentation model "
-                        f"not found at {model_path}"
-                    )
-
-                # -----------------------------------------
-                # IMPORT MODEL
-                # -----------------------------------------
-                from torchvision.models.segmentation import (
-                    deeplabv3_mobilenet_v3_large
-                )
-
-                # -----------------------------------------
-                # CREATE MODEL
-                # -----------------------------------------
-                model = (
-                    deeplabv3_mobilenet_v3_large(
-                        weights=None
-                    )
-                )
-
-                # -----------------------------------------
-                # BINARY OUTPUT
-                # -----------------------------------------
-                model.classifier[4] = (
-                    torch.nn.Conv2d(
-                        256,
-                        2,
-                        kernel_size=1
-                    )
-                )
-
-                # -----------------------------------------
-                # LOAD WEIGHTS
-                # -----------------------------------------
-                state_dict = torch.load(
-                    model_path,
-                    map_location=self.device
-                )
-
-                model.load_state_dict(
-                    state_dict,
-                    strict=False
-                )
-
-                # -----------------------------------------
-                # MOVE TO CUDA
-                # -----------------------------------------
-                model.to(self.device)
-
-                model.eval()
-
-                # -----------------------------------------
-                # VERIFY DEVICE
-                # -----------------------------------------
-                print(
-                    "[SEGMENTER] Running on:",
-                    next(
-                        model.parameters()
-                    ).device
-                )
-
-                return model
+                model = build_deeplab_segmenter(weights, self.device)
+                self.seg_backend = "pytorch"
+                print("[SEGMENTER] PyTorch", next(model.parameters()).device)
+                return self._maybe_compile(model, "SEGMENTER")
 
             self.models["flood_segmenter"] = (
 

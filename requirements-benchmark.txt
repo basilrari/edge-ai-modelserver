@@ -1,0 +1,5 @@
+# Optional — offline drone video benchmark & reports
+pandas>=2.0.0
+matplotlib>=3.7.0
+# Optional YouTube CC downloads:
+# yt-dlp>=2024.1.0

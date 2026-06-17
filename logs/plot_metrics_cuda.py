@@ -2,6 +2,7 @@ import os
 import sys
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Allow imports from model_server root when run from logs/
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -24,10 +25,21 @@ def plot_column(df, column, title, filename, ylabel):
         print(f"[WARN] No data for column: {column}")
         return
 
+    x = (
+        df.loc[series.index, "frame_idx"].values
+        if "frame_idx" in df.columns
+        else np.arange(len(series))
+    )
+    sparse = len(series) <= 15
+
     plt.figure(figsize=(10, 5))
-    plt.plot(series.values)
-    plt.title(title)
-    plt.xlabel("Frame")
+    if sparse:
+        plt.scatter(x, series.values, s=36, alpha=0.9)
+        plt.title(f"{title} (sparse — points only)")
+    else:
+        plt.plot(x, series.values, linewidth=0.8, alpha=0.75)
+        plt.scatter(x, series.values, s=6, alpha=0.35)
+    plt.xlabel("Video frame index" if "frame_idx" in df.columns else "Inference sample")
     plt.ylabel(ylabel)
     plt.grid(True)
     plt.tight_layout()

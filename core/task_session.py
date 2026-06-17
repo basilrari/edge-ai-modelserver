@@ -105,11 +105,21 @@ class TaskSession:
         }
 
     @classmethod
+    def _reset_tool_sessions(cls) -> None:
+        from tools.detect_flood import reset_session
+
+        reset_session()
+
+    @classmethod
     def activate(cls, tools: set[str]) -> dict:
         previous = set(cls._active_tools)
         cls._active_tools = set(tools)
         if previous != cls._active_tools:
-            print(f"[TASK] switched {sorted(previous) or ['idle']} → {sorted(cls._active_tools) or ['idle']}")
+            cls._reset_tool_sessions()
+            print(
+                f"[TASK] switched {sorted(previous) or ['idle']} "
+                f"→ {sorted(cls._active_tools) or ['idle']}"
+            )
         return {"from": sorted(previous), "to": sorted(cls._active_tools)}
 
     @classmethod
@@ -117,8 +127,21 @@ class TaskSession:
         previous = set(cls._active_tools)
         cls._active_tools = set()
         if previous:
+            cls._reset_tool_sessions()
             print(f"[TASK] stopped ({sorted(previous)} → idle)")
         return {"from": sorted(previous), "to": []}
+
+    @classmethod
+    def _run_active_impl(cls) -> dict:
+        if cls._active_tools == VALID_TOOLS:
+            return detect_flood_and_human()
+        if cls._active_tools == {"detect_flood"}:
+            result = detect_flood()
+            result["task"] = "detect_flood"
+            return result
+        if cls._active_tools == {"detect_human"}:
+            return detect_human()
+        return {"error": f"unsupported tool set: {sorted(cls._active_tools)}"}
 
     @classmethod
     def run_active(cls) -> dict:
@@ -129,15 +152,22 @@ class TaskSession:
                 "active_tools": [],
                 "message": "Model server ready — waiting for detect_flood / detect_human command",
             }
-        if cls._active_tools == VALID_TOOLS:
-            return detect_flood_and_human()
-        if cls._active_tools == {"detect_flood"}:
-            result = detect_flood()
-            result["task"] = "detect_flood"
-            return result
-        if cls._active_tools == {"detect_human"}:
-            return detect_human()
-        return {"error": f"unsupported tool set: {sorted(cls._active_tools)}"}
+
+        from core.inference_gate import run_inference_gated
+        from core.model_warmup import warmup_for_tools
+
+        warmup_for_tools(cls._active_tools)
+
+        result = run_inference_gated(cls._run_active_impl)
+        if result is None:
+            label = cls._active_tool_label()
+            return {
+                "skipped": True,
+                "active_tool": label,
+                "active_tools": sorted(cls._active_tools),
+                "message": "Previous inference still running",
+            }
+        return result
 
     @classmethod
     def run_tool_request(cls, request) -> dict:
@@ -155,9 +185,23 @@ class TaskSession:
             }
 
         switch = cls.activate(tools)
-        result = cls.run_active()
-        result["active_tool"] = cls._active_tool_label()
-        result["active_tools"] = sorted(cls._active_tools)
+        from core.model_warmup import warmup_for_tools
+
+        warmup_for_tools(cls._active_tools)
+        label = cls._active_tool_label()
+        from core.inference_gate import run_inference_gated
+
+        infer = run_inference_gated(cls._run_active_impl)
+        result = {
+            **cls.get_status(),
+            "active_tool": label,
+            "active_tools": sorted(cls._active_tools),
+            "message": f"{label} active",
+        }
+        if infer and not infer.get("skipped"):
+            result.update(infer)
+            result["active_tool"] = label
+            result["active_tools"] = sorted(cls._active_tools)
         if switch["from"] != switch["to"]:
             result["task_switch"] = switch
         return result

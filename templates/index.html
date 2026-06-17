@@ -55,6 +55,18 @@
         background: #334155; color: #e2e8f0; border: none; border-radius: 6px; cursor: pointer;
     }
     .test-btns button:hover { background: #475569; }
+    .source-row {
+        margin-top: 12px; padding: 10px; background: #0f172a; border-radius: 8px;
+        border: 1px solid #334155; font-size: 13px;
+    }
+    .source-row label { color: #94a3b8; margin-right: 10px; }
+    .source-row select, .source-row input[type="file"] {
+        background: #1e293b; color: #e2e8f0; border: 1px solid #475569;
+        border-radius: 4px; padding: 4px 8px; margin-right: 8px;
+    }
+    .offline-controls { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .offline-progress { font-size: 12px; color: #64748b; margin-top: 6px; }
+    .mode-offline { color: #f472b6; }
 </style>
 </head>
 <body>
@@ -68,14 +80,39 @@
 </div>
 <div class="container">
     <div class="panel">
-        <h2>Live camera</h2>
+        <h2 id="feed-title">Live camera</h2>
         <img id="video" src="" alt="live feed" />
         <div class="cam-hint">
+            Source: <span id="input-source">idle</span> |
             Device: <span id="camera-device">—</span> |
             Overlay: <span id="overlay-mode">—</span>
         </div>
         <div class="cam-hint" id="gps-text"></div>
-        <div class="test-btns">
+
+        <div class="source-row">
+            <strong>Input source</strong>
+            <div class="offline-controls">
+                <label><input type="radio" name="input-src" value="camera" checked onchange="setInputSource('camera')"> Live camera</label>
+                <label><input type="radio" name="input-src" value="offline" onchange="setInputSource('offline')"> Offline video</label>
+            </div>
+            <div id="offline-panel" class="hidden" style="margin-top:10px">
+                <input type="file" id="offline-file" accept="video/mp4,video/*" />
+                <select id="offline-video-select"><option value="">— upload or pick video —</option></select>
+                <select id="offline-tool">
+                    <option value="detect_combined">detect_combined</option>
+                    <option value="detect_flood">detect_flood</option>
+                    <option value="detect_human">detect_human</option>
+                </select>
+                <label>Alt <input type="number" id="offline-alt" value="50" min="10" max="200" style="width:52px">m</label>
+                <label title="1 = every frame (genuine plots). Higher = faster but sparse charts.">Stride <input type="number" id="offline-stride" value="1" min="1" max="30" style="width:42px"></label>
+                <button type="button" onclick="startOfflineSession()">Run offline</button>
+                <button type="button" onclick="stopOfflineSession()">Stop offline</button>
+            </div>
+            <div class="offline-progress" id="offline-progress"></div>
+            <div class="offline-progress" id="offline-export" style="color:#86efac;margin-top:4px"></div>
+        </div>
+
+        <div class="test-btns" id="camera-test-btns">
             <button type="button" onclick="activateTool('detect_flood')">Test flood</button>
             <button type="button" onclick="activateTool('detect_human')">Test human</button>
             <button type="button" onclick="activateTool('detect_combined')">Test both</button>
@@ -107,12 +144,30 @@
                 <div class="model-chip" id="chip-deeplab"><strong>DeepLabv3+</strong><br>Segmentation</div>
             </div>
             <div class="metric">Last switch: <span id="model-switch">none</span></div>
+            <div class="metric" id="flood-localization-section">
+                Most flooded cell
+                <span style="font-size:11px;color:#64748b">(simulated GPS — no Pixhawk)</span>
+                <div class="metrics-grid" style="margin-top:8px">
+                    <div><span>Latitude</span><br><b id="flood-lat">—</b></div>
+                    <div><span>Longitude</span><br><b id="flood-lon">—</b></div>
+                    <div><span>Grid cell</span><br><b id="flood-cell">—</b></div>
+                    <div><span>Cell ratio</span><br><b id="flood-cell-ratio">—</b></div>
+                </div>
+                <div style="font-size:11px;color:#64748b;margin-top:6px">
+                    Ref drone (fake): <span id="flood-ref-gps">—</span> @ <span id="flood-ref-alt">—</span> m AGL
+                </div>
+            </div>
         </div>
 
         <div id="human-panel" class="hidden">
             <div class="metric">Humans detected: <span id="human-count" class="value">—</span></div>
             <div class="metric">Model: <span id="human-model" class="value">YOLOv8n</span></div>
-            <div id="human-list" class="metric" style="font-size:12px;color:#94a3b8"></div>
+            <div class="metric" id="human-localization-section">
+                Person GPS (bbox centroid)
+                <span style="font-size:11px;color:#64748b">(simulated GPS — no Pixhawk)</span>
+                <div id="human-gps-list" class="metric" style="font-size:12px;color:#94a3b8;margin-top:6px"></div>
+            </div>
+            <div id="human-list" class="metric" style="font-size:12px;color:#64748b"></div>
         </div>
 
         <div class="metric">Status: <span id="status" class="status ok">NORMAL</span></div>
