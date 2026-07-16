@@ -1,0 +1,189 @@
+{
+  "load_unload": {
+    "flood_classifier": {
+      "load_ms": 150.95,
+      "unload_ms": 195.89,
+      "reload_ms": 30.51
+    },
+    "flood_segmenter": {
+      "load_ms": 51.45,
+      "unload_ms": 198.1,
+      "reload_ms": 56.88
+    },
+    "human_detector": {
+      "load_ms": 3.65,
+      "unload_ms": 191.18,
+      "reload_ms": 0.96
+    }
+  },
+  "logical_primary_switch": {
+    "iterations": 50,
+    "switch_count": 36,
+    "switch_latency_ms": {
+      "mean": 0.016,
+      "max": 0.046,
+      "min": 0.005
+    },
+    "events": [
+      {
+        "step": 2,
+        "flood_ratio": 0.22,
+        "from": "resnet18",
+        "to": "deeplabv3plus",
+        "latency_ms": 0.046
+      },
+      {
+        "step": 4,
+        "flood_ratio": 0.12,
+        "from": "deeplabv3plus",
+        "to": "resnet18",
+        "latency_ms": 0.026
+      },
+      {
+        "step": 5,
+        "flood_ratio": 0.28,
+        "from": "resnet18",
+        "to": "deeplabv3plus",
+        "latency_ms": 0.024
+      },
+      {
+        "step": 6,
+        "flood_ratio": 0.08,
+        "from": "deeplabv3plus",
+        "to": "resnet18",
+        "latency_ms": 0.025
+      },
+      {
+        "step": 7,
+        "flood_ratio": 0.25,
+        "from": "resnet18",
+        "to": "deeplabv3plus",
+        "latency_ms": 0.022
+      },
+      {
+        "step": 8,
+        "flood_ratio": 0.05,
+        "from": "deeplabv3plus",
+        "to": "resnet18",
+        "latency_ms": 0.021
+      },
+      {
+        "step": 10,
+        "flood_ratio": 0.22,
+        "from": "resnet18",
+        "to": "deeplabv3plus",
+        "latency_ms": 0.021
+      },
+      {
+        "step": 12,
+        "flood_ratio": 0.12,
+        "from": "deeplabv3plus",
+        "to": "resnet18",
+        "latency_ms": 0.018
+      },
+      {
+        "step": 13,
+        "flood_ratio": 0.28,
+        "from": "resnet18",
+        "to": "deeplabv3plus",
+        "latency_ms": 0.018
+      },
+      {
+        "step": 14,
+        "flood_ratio": 0.08,
+        "from": "deeplabv3plus",
+        "to": "resnet18",
+        "latency_ms": 0.018
+      },
+      {
+        "step": 15,
+        "flood_ratio": 0.25,
+        "from": "resnet18",
+        "to": "deeplabv3plus",
+        "latency_ms": 0.017
+      },
+      {
+        "step": 16,
+        "flood_ratio": 0.05,
+        "from": "deeplabv3plus",
+        "to": "resnet18",
+        "latency_ms": 0.017
+      },
+      {
+        "step": 18,
+        "flood_ratio": 0.22,
+        "from": "resnet18",
+        "to": "deeplabv3plus",
+        "latency_ms": 0.017
+      },
+      {
+        "step": 20,
+        "flood_ratio": 0.12,
+        "from": "deeplabv3plus",
+        "to": "resnet18",
+        "latency_ms": 0.019
+      },
+      {
+        "step": 21,
+        "flood_ratio": 0.28,
+        "from": "resnet18",
+        "to": "deeplabv3plus",
+        "latency_ms": 0.021
+      },
+      {
+        "step": 22,
+        "flood_ratio": 0.08,
+        "from": "deeplabv3plus",
+        "to": "resnet18",
+        "latency_ms": 0.019
+      },
+      {
+        "step": 23,
+        "flood_ratio": 0.25,
+        "from": "resnet18",
+        "to": "deeplabv3plus",
+        "latency_ms": 0.035
+      },
+      {
+        "step": 24,
+        "flood_ratio": 0.05,
+        "from": "deeplabv3plus",
+        "to": "resnet18",
+        "latency_ms": 0.018
+      },
+      {
+        "step": 26,
+        "flood_ratio": 0.22,
+        "from": "resnet18",
+        "to": "deeplabv3plus",
+        "latency_ms": 0.021
+      },
+      {
+        "step": 28,
+        "flood_ratio": 0.12,
+        "from": "deeplabv3plus",
+        "to": "resnet18",
+        "latency_ms": 0.019
+      }
+    ],
+    "note": "Primary switch is orchestration only (models stay loaded). Unload/reload times are in load_unload section."
+  },
+  "physical_model_swap": {
+    "flood_classifier_to_segmenter_ms": 255.42,
+    "note": "Full unload classifier + load segmenter (worst-case swap)."
+  },
+  "live_pipeline_fields": [
+    "clf_load_ms",
+    "seg_load_ms",
+    "model_switch_latency_ms",
+    "classification_ms",
+    "segmentation_ms",
+    "total_latency_ms",
+    "fps",
+    "memory_mb",
+    "cpu_percent",
+    "power_w",
+    "peak_power_w",
+    "flood_ratio"
+  ]
+}

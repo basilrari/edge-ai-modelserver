@@ -1,0 +1,19 @@
+{
+  "frames": 68,
+  "videos": [
+    "archive_flood_airfield.mp4"
+  ],
+  "modes": [
+    "flood",
+    "combined"
+  ],
+  "altitudes_m": [
+    25.0,
+    50.0,
+    75.0,
+    100.0
+  ],
+  "mean_latency_ms": 26.366764705882357,
+  "mean_fps": 51.307647058823534,
+  "mean_flood_ratio": 0.4829514705882353
+}

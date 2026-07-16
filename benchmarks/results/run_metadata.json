@@ -1,0 +1,42 @@
+{
+  "video_info": {
+    "path": "/home/jetson8/python-worker/model_server/benchmarks/videos/chittur_river_rescue.mp4",
+    "name": "chittur_river_rescue.mp4",
+    "frame_count": 5540,
+    "fps": 25.0,
+    "width": 640,
+    "height": 360,
+    "duration_s": 221.6,
+    "duration_mmss": "3:42"
+  },
+  "render_plan": {
+    "render_stride": 1,
+    "render_fps": 25.0,
+    "source_frames": 5540,
+    "frames_to_write": 5540,
+    "expected_duration_s": 221.6,
+    "expected_duration_mmss": "3:42",
+    "matches_input": true
+  },
+  "csv_plan": null,
+  "summary": {
+    "path": "/home/jetson8/python-worker/model_server/benchmarks/videos/chittur_river_rescue.mp4",
+    "name": "chittur_river_rescue.mp4",
+    "frame_count": 5540,
+    "fps": 25.0,
+    "width": 640,
+    "height": 360,
+    "duration_s": 221.6,
+    "duration_mmss": "3:42",
+    "render_video": "/home/jetson8/python-worker/model_server/benchmarks/results/videos/chittur_river_rescue_combined_50m.mp4",
+    "render_frames_written": 5540,
+    "render_fps": 25.0,
+    "render_duration_s": 221.6,
+    "source_duration_s": 221.6,
+    "source_frames": 5540,
+    "duration_matches_input": true,
+    "video_id": "chittur_river_rescue"
+  },
+  "csv": "/home/jetson8/python-worker/model_server/benchmarks/results/drone_video_benchmark.csv",
+  "system_benchmark": "/home/jetson8/python-worker/model_server/benchmarks/results/system_benchmark.json"
+}
