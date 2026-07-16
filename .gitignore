@@ -9,15 +9,12 @@ ayush/
 # Dashboard offline uploads + per-video export folders
 uploads/
 
-# Benchmark media & generated results (large binaries, regenerate on-device)
+# Benchmark source videos (large — download separately)
 benchmarks/videos/
-benchmarks/results/
+benchmarks/results/videos/
 
-# Runtime logs & metrics
-logs/*.csv
-logs/*.json
-logs/*.png
-logs/*.jpg
+# Benchmark overlay MP4s (keep CSV/plots/HTML in dashboard/)
+**/*_overlay.mp4
 
 # Training datasets (large — download separately)
 models/flood_classifier/dataset/
@@ -33,8 +30,5 @@ models/flood_segmentation/**/ImageSets/
 .DS_Store
 *.Zone.Identifier
 
-# TensorRT engines & ONNX (built on Jetson, not committed)
-*.onnx
-*.engine
-models/human_detector/
-*.pt
+# Ad-hoc runtime frame captures (not benchmark artifacts)
+logs/human_detect_last.jpg

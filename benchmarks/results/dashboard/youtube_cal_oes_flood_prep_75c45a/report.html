@@ -1,0 +1,63 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+    <title>Benchmark Report</title>
+    <style>body{font-family:sans-serif;max-width:960px;margin:2em auto}</style>
+    </head><body>
+    <h1>Offline Benchmark Report</h1>
+    <pre>{
+  "frames": 229,
+  "csv_rows_raw": 229,
+  "sampling_stride": 1,
+  "videos": [
+    "youtube_cal_oes_flood_prep_75c45a.mp4"
+  ],
+  "modes": [
+    "combined"
+  ],
+  "active_tools": [
+    "detect_combined"
+  ],
+  "altitudes_m": [
+    50.0
+  ],
+  "frame_idx_range": [
+    0,
+    228
+  ],
+  "mean_latency_ms": 43.961266375545854,
+  "std_latency_ms": 6.918214876214074,
+  "mean_fps": 23.302183406113535,
+  "std_fps": 3.6558461402666254,
+  "mean_flood_ratio": 0.07234628820960698,
+  "mean_human_count": 1.0,
+  "lifecycle": {
+    "active_tool": "detect_combined",
+    "benchmark_mode": "combined",
+    "model_load_events": 1,
+    "model_reload_events": 0,
+    "clf_load_ms": 31.15,
+    "seg_load_ms": 73.22,
+    "human_load_ms": 1.32,
+    "model_load_total_ms": 105.69,
+    "unload_events": [],
+    "first_frame_latency_ms": 65.52,
+    "steady_latency_ms": {
+      "mean": 43.87,
+      "p50": 43.47,
+      "p95": 55.01,
+      "frames": 228
+    }
+  }
+}</pre>
+    <h3>flood_ratio_by_altitude</h3><img src="flood_ratio_by_altitude.png" width="900"/>
+<h3>model_load_times</h3><img src="model_load_times.png" width="900"/>
+<h3>overview_per_frame</h3><img src="overview_per_frame.png" width="900"/>
+<h3>series_classification_ms</h3><img src="series_classification_ms.png" width="900"/>
+<h3>series_cpu_percent</h3><img src="series_cpu_percent.png" width="900"/>
+<h3>series_flood_ratio</h3><img src="series_flood_ratio.png" width="900"/>
+<h3>series_instant_fps</h3><img src="series_instant_fps.png" width="900"/>
+<h3>series_memory_mb</h3><img src="series_memory_mb.png" width="900"/>
+<h3>series_segmentation_ms</h3><img src="series_segmentation_ms.png" width="900"/>
+<h3>series_total_inference_ms</h3><img src="series_total_inference_ms.png" width="900"/>
+<h3>series_total_latency_ms</h3><img src="series_total_latency_ms.png" width="900"/>
+<h3>tradeoff_altitude_latency</h3><img src="tradeoff_altitude_latency.png" width="900"/>
+    </body></html>

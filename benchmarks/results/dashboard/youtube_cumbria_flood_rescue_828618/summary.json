@@ -1,0 +1,45 @@
+{
+  "frames": 377,
+  "csv_rows_raw": 377,
+  "sampling_stride": 1,
+  "videos": [
+    "youtube_cumbria_flood_rescue_828618.mp4"
+  ],
+  "modes": [
+    "combined"
+  ],
+  "active_tools": [
+    "detect_combined"
+  ],
+  "altitudes_m": [
+    50.0
+  ],
+  "frame_idx_range": [
+    0,
+    376
+  ],
+  "mean_latency_ms": 45.66111405835543,
+  "std_latency_ms": 21.02612009894235,
+  "mean_fps": 23.048381962864724,
+  "std_fps": 4.1051774889057455,
+  "mean_flood_ratio": 0.15444615384615387,
+  "mean_human_count": 2.286472148541114,
+  "lifecycle": {
+    "active_tool": "detect_combined",
+    "benchmark_mode": "combined",
+    "model_load_events": 1,
+    "model_reload_events": 0,
+    "clf_load_ms": 114.06,
+    "seg_load_ms": 53.09,
+    "human_load_ms": 3.29,
+    "model_load_total_ms": 170.44,
+    "unload_events": [],
+    "first_frame_latency_ms": 417.04,
+    "steady_latency_ms": {
+      "mean": 44.67,
+      "p50": 43.65,
+      "p95": 59.03,
+      "frames": 376
+    }
+  }
+}

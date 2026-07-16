@@ -1,0 +1,27 @@
+{
+  "video_id": "kherson_drone_rescue",
+  "active_tool": "detect_combined",
+  "benchmark_mode": "combined",
+  "altitude_m": 50.0,
+  "stride": 1,
+  "overlay_video": "/home/jetson8/python-worker/model_server/benchmarks/results/dashboard/kherson_drone_rescue/kherson_drone_rescue_combined_50m_overlay.mp4",
+  "metrics_csv": "/home/jetson8/python-worker/model_server/benchmarks/results/dashboard/kherson_drone_rescue/metrics.csv",
+  "lifecycle": {
+    "active_tool": "detect_combined",
+    "benchmark_mode": "combined",
+    "model_load_events": 1,
+    "model_reload_events": 0,
+    "clf_load_ms": 118.43,
+    "seg_load_ms": 51.8,
+    "human_load_ms": 3.32,
+    "model_load_total_ms": 173.56,
+    "unload_events": [],
+    "first_frame_latency_ms": 577.39,
+    "steady_latency_ms": {
+      "mean": 26.9,
+      "p50": 26.35,
+      "p95": 28.81,
+      "frames": 1032
+    }
+  }
+}

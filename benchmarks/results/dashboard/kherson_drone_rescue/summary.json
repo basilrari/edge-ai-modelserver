@@ -1,0 +1,45 @@
+{
+  "frames": 1033,
+  "csv_rows_raw": 1033,
+  "sampling_stride": 1,
+  "videos": [
+    "kherson_drone_rescue.mp4"
+  ],
+  "modes": [
+    "combined"
+  ],
+  "active_tools": [
+    "detect_combined"
+  ],
+  "altitudes_m": [
+    50.0
+  ],
+  "frame_idx_range": [
+    0,
+    1032
+  ],
+  "mean_latency_ms": 27.433610842207163,
+  "std_latency_ms": 17.322161026485098,
+  "mean_fps": 37.36690222652468,
+  "std_fps": 2.6977820863069213,
+  "mean_flood_ratio": 0.30699186834462733,
+  "mean_human_count": 0.0,
+  "lifecycle": {
+    "active_tool": "detect_combined",
+    "benchmark_mode": "combined",
+    "model_load_events": 1,
+    "model_reload_events": 0,
+    "clf_load_ms": 118.43,
+    "seg_load_ms": 51.8,
+    "human_load_ms": 3.32,
+    "model_load_total_ms": 173.56,
+    "unload_events": [],
+    "first_frame_latency_ms": 577.39,
+    "steady_latency_ms": {
+      "mean": 26.9,
+      "p50": 26.35,
+      "p95": 28.81,
+      "frames": 1032
+    }
+  }
+}

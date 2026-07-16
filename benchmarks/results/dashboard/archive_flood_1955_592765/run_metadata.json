@@ -1,0 +1,27 @@
+{
+  "video_id": "archive_flood_1955_592765",
+  "active_tool": "detect_combined",
+  "benchmark_mode": "combined",
+  "altitude_m": 50.0,
+  "stride": 1,
+  "overlay_video": "/home/jetson8/python-worker/model_server/benchmarks/results/dashboard/archive_flood_1955_592765/archive_flood_1955_592765_combined_50m_overlay.mp4",
+  "metrics_csv": "/home/jetson8/python-worker/model_server/benchmarks/results/dashboard/archive_flood_1955_592765/metrics.csv",
+  "lifecycle": {
+    "active_tool": "detect_combined",
+    "benchmark_mode": "combined",
+    "model_load_events": 1,
+    "model_reload_events": 0,
+    "clf_load_ms": 51.35,
+    "seg_load_ms": 41.61,
+    "human_load_ms": 1.68,
+    "model_load_total_ms": 94.64,
+    "unload_events": [],
+    "first_frame_latency_ms": 59.3,
+    "steady_latency_ms": {
+      "mean": 38.44,
+      "p50": 37.74,
+      "p95": 49.99,
+      "frames": 484
+    }
+  }
+}

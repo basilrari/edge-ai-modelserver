@@ -1,0 +1,27 @@
+{
+  "video_id": "youtube_cal_oes_flood_prep_75c45a",
+  "active_tool": "detect_combined",
+  "benchmark_mode": "combined",
+  "altitude_m": 50.0,
+  "stride": 1,
+  "overlay_video": "/home/jetson8/python-worker/model_server/benchmarks/results/dashboard/youtube_cal_oes_flood_prep_75c45a/youtube_cal_oes_flood_prep_75c45a_combined_50m_overlay.mp4",
+  "metrics_csv": "/home/jetson8/python-worker/model_server/benchmarks/results/dashboard/youtube_cal_oes_flood_prep_75c45a/metrics.csv",
+  "lifecycle": {
+    "active_tool": "detect_combined",
+    "benchmark_mode": "combined",
+    "model_load_events": 1,
+    "model_reload_events": 0,
+    "clf_load_ms": 31.15,
+    "seg_load_ms": 73.22,
+    "human_load_ms": 1.32,
+    "model_load_total_ms": 105.69,
+    "unload_events": [],
+    "first_frame_latency_ms": 65.52,
+    "steady_latency_ms": {
+      "mean": 43.87,
+      "p50": 43.47,
+      "p95": 55.01,
+      "frames": 228
+    }
+  }
+}
