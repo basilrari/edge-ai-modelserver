@@ -5,6 +5,114 @@ let wsConnected = false;
 let inputSource = "camera";
 let offlineRunning = false;
 let offlineStepBusy = false;
+let humanDetectorTier = "lightweight";
+
+function humanModelsFromPayload(data) {
+    if (data?.active_models?.tier) return data.active_models;
+    if (data?.human_detection?.active_models) return data.human_detection.active_models;
+    if (data?.human_detector?.tier) return data.human_detector;
+    if (data?.human_detector) return data.human_detector;
+    return null;
+}
+
+function renderHumanDetectorTier(data) {
+    const status = data?.human_detector || {};
+    const models = humanModelsFromPayload(data) || {};
+    const mode = status.mode || models.mode || "auto";
+    const inferenceActive = Boolean(
+        status.inference_active
+        || data?.active_tool === "detect_human"
+        || data?.active_tool === "detect_combined"
+        || data?.task === "detect_human"
+        || data?.task === "detect_combined"
+    );
+
+    const tier = inferenceActive
+        ? (models.tier || status.tier || humanDetectorTier || "lightweight")
+        : null;
+    if (tier) humanDetectorTier = tier;
+
+    const label = tier === "robust"
+        ? "YOLO11s VisDrone"
+        : tier === "lightweight"
+            ? "YOLOv8n"
+            : "—";
+    const backend = models.backend ?? status.backend ?? "—";
+
+    setText("human-tier-mode", mode === "forced" ? "forced" : "auto");
+    setText("human-primary-model", tier ? label : "—");
+    setText("human-backend", backend);
+
+    const idleNote = document.getElementById("human-tier-idle-note");
+    if (idleNote) {
+        if (!inferenceActive) {
+            idleNote.style.display = "block";
+            idleNote.innerText = status.status_note
+                || "Models switch automatically from mission context.";
+        } else {
+            idleNote.style.display = "none";
+        }
+    }
+
+    let switchText = "none";
+    const sw = status.last_switch
+        || data?.model_switches?.tier
+        || data?.human_detector?.tier_switches?.tier
+        || data?.switch;
+    if (sw?.from && sw?.to) {
+        const reason = sw.reason ? ` (${sw.reason})` : "";
+        switchText = `${sw.from_label || sw.from} → ${sw.to_label || sw.to}${reason}`;
+    }
+    setText("human-tier-switch", switchText);
+
+    const basis = models.selection?.decision_basis
+        || status.last_selection?.metadata?.decision_basis
+        || status.metadata?.decision_basis
+        || {};
+    setText("human-ctx-alt", basis.altitude != null ? Number(basis.altitude).toFixed(1) + " m" : "—");
+    setText("human-ctx-priority", basis.priority != null ? Number(basis.priority).toFixed(2) : "—");
+    setText("human-ctx-flood", basis.flood_ratio != null ? Number(basis.flood_ratio).toFixed(3) : "—");
+    setText("human-ctx-battery", basis.battery != null ? Number(basis.battery).toFixed(0) + "%" : "—");
+
+    const chipLight = document.getElementById("chip-human-light");
+    const chipRobust = document.getElementById("chip-human-robust");
+    const btnAuto = document.getElementById("btn-tier-auto");
+    const btnForceLight = document.getElementById("btn-tier-force-light");
+    const btnForceRobust = document.getElementById("btn-tier-force-robust");
+    if (chipLight) chipLight.classList.toggle("primary", tier === "lightweight");
+    if (chipRobust) chipRobust.classList.toggle("primary", tier === "robust");
+    if (btnAuto) btnAuto.classList.toggle("active", mode !== "forced");
+    if (btnForceLight) btnForceLight.classList.toggle("active", mode === "forced" && status.force_tier === "lightweight");
+    if (btnForceRobust) btnForceRobust.classList.toggle("active", mode === "forced" && status.force_tier === "robust");
+}
+
+async function setHumanDetectorMode(mode) {
+    const body = mode === "auto" ? { mode: "auto" } : { tier: mode, force: true };
+    try {
+        const res = await fetch("/human/detector-tier", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+        renderHumanDetectorTier(data);
+        const logBox = document.getElementById("logs");
+        if (logBox) {
+            const msg = mode === "auto"
+                ? "[HUMAN TIER] mode → auto (context-aware)"
+                : `[HUMAN TIER] forced → ${mode}`;
+            logBox.innerText += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+    } catch (e) {
+        console.error(e);
+        alert(e.message || e);
+    }
+}
 
 function isCombinedMode() {
     return activeTool === "detect_combined"
@@ -17,10 +125,19 @@ function setText(id, value) {
 }
 
 function setStatusBadge(el, systemStatus) {
-    el.innerText = systemStatus || "NORMAL";
-    if (systemStatus === "CRITICAL" || systemStatus === "ALERT") {
+    const s = systemStatus || "NORMAL";
+    el.innerText = s;
+    if (s === "IDLE") {
+        el.className = "status ok";
+        el.style.background = "#1e3a5f";
+        el.style.color = "#94a3b8";
+        return;
+    }
+    el.style.background = "";
+    el.style.color = "";
+    if (s === "CRITICAL" || s === "ALERT") {
         el.className = "status alert";
-    } else if (systemStatus === "WARNING") {
+    } else if (s === "WARNING") {
         el.className = "status alert";
         el.style.background = "#78350f";
     } else {
@@ -46,14 +163,31 @@ function updateTaskUI(tool, tools) {
 
     const showFlood = activeTool === "detect_flood" || isCombinedMode();
     const showHuman = activeTool === "detect_human" || isCombinedMode();
+    const isActive = activeTool !== "idle";
 
-    document.getElementById("idle-panel").classList.toggle("hidden", activeTool !== "idle");
-    document.getElementById("flood-panel").classList.toggle("hidden", !showFlood);
-    document.getElementById("human-panel").classList.toggle("hidden", !showHuman);
-    document.getElementById("flood-metric-clf").classList.toggle("hidden", !showFlood);
-    document.getElementById("flood-metric-seg").classList.toggle("hidden", !showFlood);
-    document.getElementById("human-metric-det").classList.toggle("hidden", !showHuman);
-    document.getElementById("power-section").classList.toggle("hidden", activeTool === "idle");
+    document.getElementById("idle-panel").classList.toggle("hidden", isActive);
+    const activeDash = document.getElementById("active-dashboard");
+    if (activeDash) activeDash.classList.toggle("hidden", !isActive);
+
+    const toggleBlock = (id, show) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle("hidden", !show);
+    };
+
+    const floodModels = document.getElementById("block-flood-models");
+    const humanModels = document.getElementById("block-human-models");
+    if (floodModels) floodModels.classList.toggle("inactive", isActive && !showFlood);
+    if (humanModels) humanModels.classList.toggle("inactive", isActive && !showHuman);
+
+    toggleBlock("block-flood-results", showFlood);
+    toggleBlock("block-human-results", showHuman);
+    toggleBlock("block-flood-loc", showFlood);
+    toggleBlock("block-human-loc", showHuman);
+    toggleBlock("flood-metric-clf", showFlood);
+    toggleBlock("flood-metric-seg", showFlood);
+    toggleBlock("human-metric-det", showHuman);
+
+    setLlmPromptsEnabled(!isActive);
 
     const feedTitle = document.getElementById("feed-title");
     if (feedTitle) {
@@ -373,9 +507,9 @@ function renderHumanPanel(data) {
     setText("human-count", data.human_count ?? humans.length);
     const list = humans.map((h, i) => {
         const n = h.human_index ?? i + 1;
-        return `#${n} conf=${h.confidence} bbox=[${h.bbox.join(",")}]`;
+        return `#${n} ${h.label || "human"} conf=${h.confidence} bbox=[${h.bbox.join(",")}]`;
     }).join(" | ");
-    setText("human-list", list || "No persons in frame");
+    setText("human-list", list || "No humans in frame");
 
     const gpsList = document.getElementById("human-gps-list");
     if (!gpsList) return;
@@ -391,7 +525,7 @@ function renderHumanPanel(data) {
             return `<div>#${n}: GPS unavailable</div>`;
         }
         return (
-            `<div><b>Person ${n}</b> — ` +
+            `<div><b>Human ${n}</b> — ` +
             `${Number(lat).toFixed(6)}, ${Number(lon).toFixed(6)} ` +
             `(conf ${h.confidence})</div>`
         );
@@ -400,9 +534,13 @@ function renderHumanPanel(data) {
 
 function renderHuman(data) {
     renderHumanPanel(data);
+    renderHumanDetectorTier(data);
     const m = data.metrics || {};
+    const models = data.active_models || {};
     if (!isCombinedMode()) {
-        setText("overlay-mode", "YOLOv8n bounding boxes");
+        const tier = models.tier || "lightweight";
+        const name = tier === "robust" ? "YOLO11s VisDrone" : "YOLOv8n";
+        setText("overlay-mode", `${name} human boxes`);
     }
     setText("latency", m.total_latency_ms?.toFixed?.(1) ?? data.system?.latency_ms);
     setText("fps", m.instant_fps ?? data.system?.fps ?? "—");
@@ -412,6 +550,7 @@ function renderHuman(data) {
 }
 
 function renderIdle(data) {
+    renderHumanDetectorTier({ human_detector: { mode: "auto", inference_active: false } });
     setText("classification", "—");
     setText("raw-classification", "—");
     setText("flood_ratio", "—");
@@ -434,11 +573,21 @@ function renderIdle(data) {
     setText("gps-text", "");
     renderGridLocalization(null);
     setText("camera-device", "—");
+    const resnet = document.getElementById("chip-resnet");
+    const deeplab = document.getElementById("chip-deeplab");
+    const chipLight = document.getElementById("chip-human-light");
+    const chipRobust = document.getElementById("chip-human-robust");
+    if (resnet) resnet.classList.remove("primary");
+    if (deeplab) deeplab.classList.remove("primary");
+    if (chipLight) chipLight.classList.remove("primary");
+    if (chipRobust) chipRobust.classList.remove("primary");
     setStatusBadge(document.getElementById("status"), "IDLE");
 }
 
 function showIdleDashboard(message) {
     updateTaskUI("idle", []);
+    setLlmPromptsEnabled(true);
+    renderGatewayResult("Waiting for a command…");
     renderIdle({
         message:
             message ||
@@ -451,6 +600,7 @@ function showIdleDashboard(message) {
 function renderCombined(data) {
     renderFlood(data);
     renderHumanPanel(data.human_detection || data);
+    renderHumanDetectorTier(data);
     setText("overlay-mode", data.overlay_mode || "flood grid + human boxes");
     setText(
         "det-ms",
@@ -466,6 +616,10 @@ function renderCombined(data) {
 
 function renderPayload(data) {
     if (data.error) throw new Error(data.error);
+
+    if (data.human_detector) {
+        renderHumanDetectorTier(data);
+    }
 
     const tool = data.active_tool || data.task || activeTool;
     const tools = data.active_tools || activeTools;
@@ -503,6 +657,7 @@ async function fetchStatus() {
     try {
         const res = await fetch("/status");
         const data = await res.json();
+        renderHumanDetectorTier(data);
         if (!data.inference_enabled || data.active_tool === "idle") {
             if (activeTool === "idle" && !offlineRunning) {
                 disconnectWebSocket();
@@ -533,9 +688,207 @@ async function pollActiveTask() {
     }
 }
 
+function appendLog(line) {
+    const logBox = document.getElementById("logs");
+    if (!logBox) return;
+    logBox.innerText += `[${new Date().toLocaleTimeString()}] ${line}\n`;
+    logBox.scrollTop = logBox.scrollHeight;
+    const lines = logBox.innerText.split("\n");
+    if (lines.length > 50) logBox.innerText = lines.slice(-50).join("\n");
+}
+
+const FLOOD_GATEWAY_TOOLS = new Set(["flood_seg", "flood_class"]);
+const HUMAN_GATEWAY_TOOLS = new Set(["human_detect"]);
+
+function gatewayModelToolsFromResponse(gw) {
+    const names = [];
+    const tools = gw?.tools;
+    if (Array.isArray(tools)) {
+        for (const step of tools) {
+            if (step?.category === "model" && step.name) names.push(step.name);
+        }
+    }
+    if (!names.length && gw?.category === "model" && gw?.tool_name) {
+        names.push(gw.tool_name);
+    }
+    return names;
+}
+
+function mapGatewayToModelTool(modelNames) {
+    if (!modelNames?.length) return null;
+    const set = new Set(modelNames.map((n) => String(n).toLowerCase()));
+    const hasHuman = [...set].some((n) => HUMAN_GATEWAY_TOOLS.has(n));
+    const hasFlood = [...set].some((n) => FLOOD_GATEWAY_TOOLS.has(n));
+    if (hasHuman && hasFlood) return "detect_combined";
+    if (hasHuman) return "detect_human";
+    if (hasFlood) return "detect_flood";
+    return null;
+}
+
+function renderGatewayResult(html) {
+    const el = document.getElementById("gateway-result");
+    if (el) el.innerHTML = html;
+}
+
+function setGatewayUiBusy(busy) {
+    const input = document.getElementById("gateway-prompt");
+    const btn = document.getElementById("btn-gateway-send");
+    if (input) input.disabled = busy || activeTool !== "idle";
+    if (btn) btn.disabled = busy || activeTool !== "idle";
+}
+
+function updateGatewayStatusBar(data) {
+    const dot = document.getElementById("gateway-dot");
+    const cmd = document.getElementById("gateway-active-cmd");
+    const llmText = document.getElementById("llm-status-text");
+    const reachable = data?.reachable !== false && !data?.error;
+    if (dot) {
+        dot.className = "gateway-dot " + (reachable ? "ok" : "err");
+    }
+    if (cmd) {
+        const active = data?.active_command;
+        cmd.textContent = active && active !== "none"
+            ? `Gateway: ${active}`
+            : reachable ? "Gateway ready" : "Gateway unreachable";
+    }
+    if (llmText) {
+        if (data?.llm_reachable === true) {
+            llmText.textContent = " · online";
+            llmText.style.color = "#22c55e";
+        } else if (data?.llm_reachable === false) {
+            llmText.textContent = " · offline (keyword fallback when LLM fails)";
+            llmText.style.color = "#fbbf24";
+        } else {
+            llmText.textContent = "";
+        }
+    }
+}
+
+async function pollGatewayStatus() {
+    try {
+        const res = await fetch("/gateway/status");
+        const data = await res.json();
+        updateGatewayStatusBar(data);
+    } catch (e) {
+        updateGatewayStatusBar({ reachable: false, error: String(e) });
+    }
+}
+
+async function submitGatewayPrompt() {
+    const input = document.getElementById("gateway-prompt");
+    const prompt = (input?.value || "").trim();
+    if (!prompt) return;
+    if (inputSource === "offline") {
+        alert("Switch to Live camera first, or use Run offline for video playback.");
+        return;
+    }
+
+    setGatewayUiBusy(true);
+    renderGatewayResult("Sending to gateway LLM…");
+    appendLog(`[GATEWAY] ${prompt}`);
+
+    try {
+        const res = await fetch("/gateway/infer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt, activate: true }),
+        });
+        const data = await res.json();
+        const gw = data.gateway || {};
+        const plan = data.plan || {};
+        const mapped = data.model_server_tool || plan.model_server_tool;
+        const llmMs = gw.llm_latency_ms != null ? `${gw.llm_latency_ms} ms` : "—";
+
+        let html = `LLM ${llmMs}`;
+        if (gw.tool_name || plan.gateway_model_tools?.length) {
+            const gwTools = plan.gateway_model_tools?.length
+                ? plan.gateway_model_tools.join(", ")
+                : `${gw.category}:${gw.tool_name}`;
+            html += ` · Gateway: <code>${gwTools}</code>`;
+        }
+        if (plan.drone_steps?.length) {
+            html += ` · Drone: ${plan.drone_steps.join(" → ")}`;
+        }
+        if (mapped) {
+            html += ` · Model server: <span class="mapped-tool">${mapped}</span>`;
+        }
+        if (gw.drone_error) {
+            html += `<br><span class="err">Drone: ${gw.drone_error}</span>`;
+        }
+        if (data.error || gw.error) {
+            html += `<br><span class="err">${data.error || gw.error}</span>`;
+        } else if (gw.action_taken && String(gw.action_taken).includes("llm_http_failed")) {
+            html += `<br><span class="err">LLM server offline at ${data.llm_url || "port 8080"} — start llama-server / OpenAI-compatible API.</span>`;
+            if (data.fallback_used && mapped) {
+                html += `<br>Keyword fallback → <span class="mapped-tool">${mapped}</span>`;
+            } else if (!mapped) {
+                html += "<br>No keyword match — use Quick presets or start the LLM.";
+            }
+        } else if (data.fallback_used && mapped) {
+            html += `<br>LLM offline — keyword fallback → <span class="mapped-tool">${mapped}</span>`;
+        } else if (gw.category === "none" || plan.is_none) {
+            html += `<br>No model tool — ${gw.tool_name || gw.action_taken || "no action"}`;
+        } else if (!mapped && plan.drone_steps?.length) {
+            html += "<br>Drone step(s) only — no vision tool activated.";
+        } else if (!mapped) {
+            html += `<br>${gw.action_taken || "No model tool mapped."}`;
+        }
+        renderGatewayResult(html);
+
+        if (gw.llm_tool_json) {
+            appendLog(`[GATEWAY] plan ${gw.llm_tool_json}`);
+        }
+        if (plan.drone_steps?.length) {
+            appendLog(`[GATEWAY] drone steps: ${plan.drone_steps.join(" → ")}`);
+        }
+
+        const toolResult = data.tool_result;
+        if (data.activated && toolResult && !toolResult.error) {
+            appendLog(`[MODEL] activated ${mapped}`);
+            inputSource = "camera";
+            setText("input-source", "camera");
+            const tool = toolResult.active_tool || mapped;
+            const tools = toolResult.active_tools || [];
+            updateTaskUI(tool, tools);
+            if (toolResult.frame_base64 || toolResult.frame) {
+                renderPayload(toolResult);
+            } else {
+                renderPayload(toolResult);
+            }
+            connectWebSocket();
+            if (input) input.value = "";
+        } else if (toolResult?.error) {
+            appendLog(`[MODEL] error: ${toolResult.error}`);
+        }
+
+        pollGatewayStatus();
+    } catch (e) {
+        console.error(e);
+        renderGatewayResult(`<span class="err">Gateway request failed: ${e.message || e}</span>`);
+        updateGatewayStatusBar({ reachable: false });
+    } finally {
+        setGatewayUiBusy(false);
+    }
+}
+
+function setLlmPromptsEnabled(enabled) {
+    document.querySelectorAll(".llm-prompt").forEach((btn) => {
+        btn.disabled = !enabled;
+    });
+    const input = document.getElementById("gateway-prompt");
+    const btn = document.getElementById("btn-gateway-send");
+    if (input) input.disabled = !enabled;
+    if (btn) btn.disabled = !enabled;
+}
+
+async function activateFromLlmPrompt(tool, phrase) {
+    appendLog(`[PRESET] ${phrase}`);
+    await activateTool(tool);
+}
+
 async function activateTool(tool) {
     if (inputSource === "offline") {
-        alert("Switch to Live camera for camera test buttons, or use Run offline");
+        alert("Switch to Live camera first, or use Run offline for video playback.");
         return;
     }
     const body = tool === "detect_combined"
@@ -638,7 +991,11 @@ window.addEventListener("beforeunload", () => {
 showIdleDashboard();
 setText("input-source", "idle");
 fetchStatus();
+pollGatewayStatus();
 setInterval(() => {
     if (inputSource === "camera" && !offlineRunning) fetchStatus();
 }, 2000);
 setInterval(pollActiveTask, 2500);
+setInterval(() => {
+    if (activeTool === "idle") pollGatewayStatus();
+}, 5000);

@@ -52,7 +52,7 @@ def warmup_for_tools(active_tools: set[str]) -> None:
         model.predict(
             dummy,
             conf=0.4,
-            classes=[0],
+            classes=list(manager.human_class_ids),
             verbose=False,
             device=0,
             imgsz=manager.human_imgsz,
@@ -70,7 +70,10 @@ def warmup_for_tools(active_tools: set[str]) -> None:
     if need_human:
         from tools.detect_human import _get_model_manager
 
-        parts.append(f"human={_get_model_manager().human_backend}")
+        parts.append(
+            f"human={_get_model_manager().human_backend} "
+            f"tier={_get_model_manager().human_tier}"
+        )
     print(f"[WARMUP] Ready ({', '.join(parts)}) tools={sorted(active_tools)}")
 
 

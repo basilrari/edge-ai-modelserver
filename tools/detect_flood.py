@@ -48,6 +48,10 @@ def reset_session() -> None:
     _last_mask = None
 
 
+def get_session_context() -> dict:
+    return {"flood_ratio": float(_last_flood_ratio)}
+
+
 def _components():
     global _model_manager, _engine, _context_evaluator, _selector, _power
     if _model_manager is None:

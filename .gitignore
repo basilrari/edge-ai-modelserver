@@ -36,3 +36,5 @@ models/flood_segmentation/**/ImageSets/
 # TensorRT engines & ONNX (built on Jetson, not committed)
 *.onnx
 *.engine
+models/human_detector/
+*.pt

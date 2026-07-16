@@ -200,7 +200,7 @@ class VideoBenchmarkRunner:
     def _run_human(self, frame: np.ndarray) -> dict:
         from tools.detect_human import run_human_inference
 
-        humans, infer_ms, _ = run_human_inference(frame)
+        humans, infer_ms, _, _, _, _ = run_human_inference(frame)
         return {
             "classification_ms": 0.0,
             "segmentation_ms": 0.0,
@@ -220,7 +220,7 @@ class VideoBenchmarkRunner:
         flood = self._run_flood(frame)
         from tools.detect_human import run_human_inference
 
-        humans, infer_ms, _ = run_human_inference(frame)
+        humans, infer_ms, _, _, _, _ = run_human_inference(frame)
         total = flood["total_inference_ms"] + infer_ms
         return {
             **flood,

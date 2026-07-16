@@ -18,14 +18,76 @@
     .mode-flood { color: #00e5ff; }
     .mode-human { color: #a78bfa; }
     .mode-combined { color: #fbbf24; }
-    .container { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; padding: 20px; }
+    .container {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        grid-template-rows: 1fr auto;
+        gap: 20px;
+        padding: 20px;
+        align-items: start;
+    }
+    .main-column { grid-column: 1; grid-row: 1; min-width: 0; }
+    .sidebar {
+        grid-column: 2;
+        grid-row: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        min-width: 0;
+    }
+    .log-panel { grid-column: 1 / -1; grid-row: 2; }
+    .panel-subtitle { font-size: 12px; color: #64748b; margin: 0 0 12px 0; line-height: 1.4; }
+    .dashboard-panel { display: flex; flex-direction: column; gap: 4px; }
+    .status-row {
+        display: flex; align-items: center; justify-content: space-between;
+        margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #1f2937;
+    }
+    .status-row .label { font-size: 14px; color: #94a3b8; }
+    .model-group {
+        background: #0f172a; border: 1px solid #1f2937; border-radius: 10px;
+        padding: 12px; margin-bottom: 10px;
+    }
+    .model-group.inactive { opacity: 0.45; }
+    .model-group-label {
+        font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+        text-transform: uppercase; color: #64748b; margin-bottom: 8px;
+    }
+    .model-group.flood .model-group-label { color: #00e5ff; }
+    .model-group.human .model-group-label { color: #a78bfa; }
+    .metric.compact { margin: 4px 0; font-size: 13px; }
+    .metric.compact .value { font-size: 15px; }
+    .section-block { margin-top: 4px; }
+    .section-block.hidden { display: none !important; }
+    .subsection-label {
+        font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+        text-transform: uppercase; margin-bottom: 6px;
+    }
+    .subsection-label.flood { color: #00e5ff; }
+    .subsection-label.human { color: #a78bfa; }
+    .sidebar .dashboard-panel {
+        max-height: calc(100vh - 130px);
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: #334155 transparent;
+    }
     .panel {
         background: #111827; border-radius: 12px; padding: 15px;
         box-shadow: 0 0 10px rgba(0, 255, 255, 0.05);
     }
     .panel h2 {
-        margin-top: 0; font-size: 18px; color: #00e5ff;
-        border-bottom: 1px solid #1f2937; padding-bottom: 5px;
+        margin-top: 0;
+        font-size: 18px;
+        color: #00e5ff;
+        border-bottom: 1px solid #1f2937;
+        padding-bottom: 5px;
+    }
+    .panel h3 {
+        margin: 16px 0 8px;
+        font-size: 15px;
+        color: #94a3b8;
+        border-bottom: 1px solid #1f2937;
+        padding-bottom: 4px;
+        font-weight: 600;
     }
     .hidden { display: none !important; }
     #video { width: 100%; border-radius: 10px; border: 1px solid #1f2937; min-height: 240px; background: #000; }
@@ -40,6 +102,9 @@
         padding: 12px; font-size: 14px; border: 2px solid transparent;
     }
     .model-chip.primary { border-color: #00e5ff; background: #14532d; }
+    .model-chip.human-light.primary { border-color: #a78bfa; background: #312e81; }
+    .model-chip.human-robust.primary { border-color: #f472b6; background: #831843; }
+    .tier-btns button.active { background: #0e7490; color: #e0f2fe; }
     .cam-hint { font-size: 12px; color: #64748b; margin-top: 6px; }
     .metrics-grid {
         display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px;
@@ -67,6 +132,59 @@
     .offline-controls { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .offline-progress { font-size: 12px; color: #64748b; margin-top: 6px; }
     .mode-offline { color: #f472b6; }
+    .llm-prompts { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+    .llm-prompt {
+        display: block; width: 100%; text-align: left;
+        background: #0f172a; border: 1px solid #334155; border-radius: 10px;
+        padding: 12px 14px; cursor: pointer; color: #e2e8f0;
+        transition: border-color 0.15s, background 0.15s;
+    }
+    .llm-prompt:hover { background: #1e293b; }
+    .llm-prompt.flood { border-left: 3px solid #00e5ff; }
+    .llm-prompt.flood:hover { border-color: #00e5ff; }
+    .llm-prompt.human { border-left: 3px solid #a78bfa; }
+    .llm-prompt.human:hover { border-color: #a78bfa; }
+    .llm-prompt.combined { border-left: 3px solid #fbbf24; }
+    .llm-prompt.combined:hover { border-color: #fbbf24; }
+    .llm-prompt-text {
+        display: block; font-size: 14px; line-height: 1.45;
+        font-style: italic; color: #f1f5f9; margin-bottom: 6px;
+    }
+    .llm-prompt-meta { font-size: 11px; color: #64748b; letter-spacing: 0.02em; }
+    .llm-prompt-meta code { color: #94a3b8; font-size: 10px; }
+    .llm-prompt:disabled { opacity: 0.5; cursor: not-allowed; }
+    .gateway-bar {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 8px; margin-bottom: 12px; padding: 8px 10px;
+        background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+        font-size: 12px;
+    }
+    .gateway-dot {
+        width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+        margin-right: 6px; background: #64748b;
+    }
+    .gateway-dot.ok { background: #22c55e; }
+    .gateway-dot.err { background: #ef4444; }
+    .gateway-dot.pending { background: #eab308; }
+    .llm-input-row { display: flex; gap: 8px; margin-top: 10px; }
+    .llm-input-row input {
+        flex: 1; background: #0f172a; border: 1px solid #475569; border-radius: 8px;
+        color: #e2e8f0; padding: 10px 12px; font-size: 14px;
+    }
+    .llm-input-row input:disabled { opacity: 0.5; }
+    .llm-input-row button {
+        padding: 10px 16px; background: #0e7490; color: #e0f2fe; border: none;
+        border-radius: 8px; cursor: pointer; font-size: 13px; white-space: nowrap;
+    }
+    .llm-input-row button:hover:not(:disabled) { background: #0891b2; }
+    .llm-input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .gateway-result {
+        margin-top: 10px; padding: 10px 12px; background: #0f172a;
+        border: 1px solid #1e293b; border-radius: 8px; font-size: 12px;
+        color: #94a3b8; line-height: 1.5; min-height: 2.5em;
+    }
+    .gateway-result .mapped-tool { color: #00ffa6; font-weight: 600; }
+    .gateway-result .err { color: #f87171; }
 </style>
 </head>
 <body>
@@ -76,9 +194,10 @@
 </header>
 <div class="mode-bar">
     Active task: <strong id="active-task" class="mode-idle">idle</strong>
-    <span id="task-hint"> — waiting for LLM command (<code>detect_flood</code>, <code>detect_human</code>, or both)</span>
+    <span id="task-hint"> — type a mission command (gateway LLM) or use quick presets below</span>
 </div>
 <div class="container">
+    <div class="main-column">
     <div class="panel">
         <h2 id="feed-title">Live camera</h2>
         <img id="video" src="" alt="live feed" />
@@ -119,77 +238,191 @@
             <button type="button" onclick="activateTool('idle')">Stop</button>
         </div>
     </div>
-    <div class="panel">
-        <h2>Inference</h2>
+    </div>
+
+    <div class="sidebar">
+    <div class="panel dashboard-panel">
+        <h2>Dashboard</h2>
+
+        <div class="status-row">
+            <span class="label">System status</span>
+            <span id="status" class="status ok">IDLE</span>
+        </div>
 
         <div id="idle-panel">
-            <div class="metric">Server is running. No detection task active.</div>
-            <div class="metric" style="font-size:12px;color:#64748b">
-                External LLM should POST to <code>/tool</code> with
-                <code>{"tool":"detect_flood"}</code>,
-                <code>{"tool":"detect_human"}</code>, or
-                <code>{"tools":["detect_flood","detect_human"]}</code>
+            <div class="gateway-bar">
+                <span>
+                    <span id="gateway-dot" class="gateway-dot pending"></span>
+                    Gateway <code id="gateway-url">{{ gateway_url }}</code>
+                </span>
+                <span id="gateway-active-cmd" style="color:#64748b">—</span>
+            </div>
+            <div class="panel-subtitle" id="llm-status-line" style="margin-top:6px;margin-bottom:0">
+                LLM <code id="llm-url">{{ llm_url }}</code>
+                <span id="llm-status-text">checking…</span>
+            </div>
+
+            <h3>LLM command</h3>
+            <p class="panel-subtitle" style="margin-top:0">
+                Natural language → edge-ai-gateway → model tools on this server.
+            </p>
+            <div class="llm-input-row">
+                <input
+                    type="text"
+                    id="gateway-prompt"
+                    placeholder="e.g. Search for people in the flooded area"
+                    autocomplete="off"
+                    onkeydown="if (event.key === 'Enter') submitGatewayPrompt()"
+                />
+                <button type="button" id="btn-gateway-send" onclick="submitGatewayPrompt()">Send</button>
+            </div>
+            <div id="gateway-result" class="gateway-result">Waiting for a command…</div>
+
+            <h3 style="margin-top:16px">Quick presets</h3>
+            <p class="panel-subtitle" style="margin-top:0">
+                Bypass LLM — activate tools directly (dev / offline gateway).
+            </p>
+
+            <div class="llm-prompts">
+                <button
+                    type="button"
+                    class="llm-prompt flood"
+                    onclick="activateFromLlmPrompt('detect_flood', 'Survey this area and tell me if the ground is flooded.')"
+                >
+                    <span class="llm-prompt-text">"Survey this area and tell me if the ground is flooded."</span>
+                    <span class="llm-prompt-meta">Flood assessment · <code>detect_flood</code></span>
+                </button>
+                <button
+                    type="button"
+                    class="llm-prompt human"
+                    onclick="activateFromLlmPrompt('detect_human', 'Search the scene for people who may need rescue.')"
+                >
+                    <span class="llm-prompt-text">"Search the scene for people who may need rescue."</span>
+                    <span class="llm-prompt-meta">Survivor search · <code>detect_human</code></span>
+                </button>
+                <button
+                    type="button"
+                    class="llm-prompt combined"
+                    onclick="activateFromLlmPrompt('detect_combined', 'Run a full rescue scan — map flooding and locate any survivors.')"
+                >
+                    <span class="llm-prompt-text">"Run a full rescue scan — map flooding and locate any survivors."</span>
+                    <span class="llm-prompt-meta">Combined rescue · <code>detect_flood</code> + <code>detect_human</code></span>
+                </button>
             </div>
         </div>
 
-        <div id="flood-panel" class="hidden">
-            <div class="metric">Flood status: <span id="classification" class="value">—</span></div>
-            <div class="metric" style="font-size:12px;color:#64748b">
-                ResNet raw: <span id="raw-classification">—</span>
+        <div id="active-dashboard" class="hidden">
+            <h3>Adaptive models</h3>
+            <p class="panel-subtitle" id="human-tier-idle-note">
+                Models switch automatically from mission context.
+            </p>
+
+            <div class="model-group flood" id="block-flood-models">
+                <div class="model-group-label">Flood pipeline</div>
+                <div class="metric compact">Primary: <span id="primary-model" class="value">—</span></div>
+                <div class="models-row">
+                    <div class="model-chip" id="chip-resnet"><strong>ResNet18</strong><br>Classifier</div>
+                    <div class="model-chip" id="chip-deeplab"><strong>DeepLabv3+</strong><br>Segmentation</div>
+                </div>
+                <div class="metric compact">Last switch: <span id="model-switch">none</span></div>
             </div>
-            <div class="metric">Flood ratio: <span id="flood_ratio" class="value">—</span></div>
-            <div class="metric">Primary model: <span id="primary-model" class="value">—</span></div>
-            <div class="models-row">
-                <div class="model-chip" id="chip-resnet"><strong>ResNet18</strong><br>Classifier</div>
-                <div class="model-chip" id="chip-deeplab"><strong>DeepLabv3+</strong><br>Segmentation</div>
+
+            <div class="model-group human" id="block-human-models">
+                <div class="model-group-label">Human pipeline</div>
+                <div class="metric compact">
+                    Mode <span id="human-tier-mode" class="value">auto</span>
+                    · Primary <span id="human-primary-model" class="value">—</span>
+                </div>
+                <div class="models-row">
+                    <div class="model-chip human-light" id="chip-human-light">
+                        <strong>YOLOv8n</strong><br>Lightweight
+                    </div>
+                    <div class="model-chip human-robust" id="chip-human-robust">
+                        <strong>YOLO11s</strong><br>Robust
+                    </div>
+                </div>
+                <div class="metric compact">
+                    Backend <span id="human-backend" class="value">—</span>
+                    · Switch <span id="human-tier-switch">none</span>
+                </div>
+                <div class="tier-btns test-btns">
+                    <button type="button" id="btn-tier-auto" class="active" onclick="setHumanDetectorMode('auto')">Auto</button>
+                    <button type="button" id="btn-tier-force-light" onclick="setHumanDetectorMode('lightweight')">Force lightweight</button>
+                    <button type="button" id="btn-tier-force-robust" onclick="setHumanDetectorMode('robust')">Force robust</button>
+                </div>
             </div>
-            <div class="metric">Last switch: <span id="model-switch">none</span></div>
-            <div class="metric" id="flood-localization-section">
-                Most flooded cell
-                <span style="font-size:11px;color:#64748b">(simulated GPS — no Pixhawk)</span>
-                <div class="metrics-grid" style="margin-top:8px">
+
+            <h3>Context</h3>
+            <div class="metrics-grid section-block" id="human-context-basis">
+                <div><span>Altitude</span><br><b id="human-ctx-alt">—</b></div>
+                <div><span>Priority</span><br><b id="human-ctx-priority">—</b></div>
+                <div><span>Flood ratio</span><br><b id="human-ctx-flood">—</b></div>
+                <div><span>Battery</span><br><b id="human-ctx-battery">—</b></div>
+            </div>
+
+            <h3>Detection</h3>
+            <div class="section-block" id="block-flood-results">
+                <div class="subsection-label flood">Flood</div>
+                <div class="metric compact">Status: <span id="classification" class="value">—</span></div>
+                <div class="metric compact" style="color:#64748b;font-size:12px">
+                    ResNet raw: <span id="raw-classification">—</span>
+                </div>
+                <div class="metric compact">Flood ratio: <span id="flood_ratio" class="value">—</span></div>
+            </div>
+            <div class="section-block" id="block-human-results">
+                <div class="subsection-label human">Human</div>
+                <div class="metric compact">Detected: <span id="human-count" class="value">—</span></div>
+                <div id="human-list" class="metric" style="font-size:12px;color:#64748b;margin-top:4px"></div>
+            </div>
+
+            <h3>Localization</h3>
+            <div class="section-block" id="block-flood-loc">
+                <div class="subsection-label flood">Flood cell</div>
+                <div class="metric compact">
+                    Most flooded grid cell
+                    <span style="font-size:11px;color:#64748b"> (simulated GPS)</span>
+                </div>
+                <div class="metrics-grid">
                     <div><span>Latitude</span><br><b id="flood-lat">—</b></div>
                     <div><span>Longitude</span><br><b id="flood-lon">—</b></div>
                     <div><span>Grid cell</span><br><b id="flood-cell">—</b></div>
                     <div><span>Cell ratio</span><br><b id="flood-cell-ratio">—</b></div>
                 </div>
                 <div style="font-size:11px;color:#64748b;margin-top:6px">
-                    Ref drone (fake): <span id="flood-ref-gps">—</span> @ <span id="flood-ref-alt">—</span> m AGL
+                    Ref drone: <span id="flood-ref-gps">—</span> @ <span id="flood-ref-alt">—</span> m
                 </div>
             </div>
-        </div>
-
-        <div id="human-panel" class="hidden">
-            <div class="metric">Humans detected: <span id="human-count" class="value">—</span></div>
-            <div class="metric">Model: <span id="human-model" class="value">YOLOv8n</span></div>
-            <div class="metric" id="human-localization-section">
-                Person GPS (bbox centroid)
-                <span style="font-size:11px;color:#64748b">(simulated GPS — no Pixhawk)</span>
-                <div id="human-gps-list" class="metric" style="font-size:12px;color:#94a3b8;margin-top:6px"></div>
+            <div class="section-block" id="block-human-loc">
+                <div class="subsection-label human">Person positions</div>
+                <div class="metric compact">
+                    Bbox centroid GPS
+                    <span style="font-size:11px;color:#64748b"> (simulated GPS)</span>
+                </div>
+                <div id="human-gps-list" style="font-size:12px;color:#94a3b8;margin-top:6px"></div>
             </div>
-            <div id="human-list" class="metric" style="font-size:12px;color:#64748b"></div>
-        </div>
 
-        <div class="metric">Status: <span id="status" class="status ok">NORMAL</span></div>
+            <h3>Performance</h3>
+            <div class="metrics-grid section-block" id="block-performance">
+                <div><span>Latency</span><br><b id="latency">—</b> ms</div>
+                <div><span>FPS</span><br><b id="fps">—</b></div>
+                <div><span>Memory</span><br><b id="memory-mb">—</b> MB</div>
+                <div><span>CPU</span><br><b id="cpu-pct">—</b> %</div>
+                <div id="flood-metric-clf"><span>Classify</span><br><b id="clf-ms">—</b> ms</div>
+                <div id="flood-metric-seg"><span>Segment</span><br><b id="seg-ms">—</b> ms</div>
+                <div id="human-metric-det"><span>Detect</span><br><b id="det-ms">—</b> ms</div>
+            </div>
 
-        <h2>Performance</h2>
-        <div class="metrics-grid">
-            <div><span>Latency</span><br><b id="latency">—</b> ms</div>
-            <div><span>FPS</span><br><b id="fps">—</b></div>
-            <div><span>Memory</span><br><b id="memory-mb">—</b> MB</div>
-            <div><span>CPU</span><br><b id="cpu-pct">—</b> %</div>
-            <div id="flood-metric-clf"><span>Classify ms</span><br><b id="clf-ms">—</b></div>
-            <div id="flood-metric-seg"><span>Segment ms</span><br><b id="seg-ms">—</b></div>
-            <div id="human-metric-det" class="hidden"><span>Detect ms</span><br><b id="det-ms">—</b></div>
-        </div>
-        <h2>Power</h2>
-        <div class="metrics-grid" id="power-section">
-            <div><span>Idle</span><br><b id="idle-power">—</b> W</div>
-            <div><span>Inference</span><br><b id="inference-power">—</b> W</div>
-            <div><span>Extra</span><br><b id="extra-power">—</b> W</div>
+            <h3>Power</h3>
+            <div class="metrics-grid section-block" id="power-section">
+                <div><span>Idle</span><br><b id="idle-power">—</b> W</div>
+                <div><span>Inference</span><br><b id="inference-power">—</b> W</div>
+                <div><span>Extra</span><br><b id="extra-power">—</b> W</div>
+            </div>
         </div>
     </div>
-    <div class="panel" style="grid-column: span 2;">
+    </div>
+
+    <div class="panel log-panel">
         <h2>Log</h2>
         <div id="logs" class="log-box"></div>
     </div>

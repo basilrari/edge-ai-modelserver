@@ -19,6 +19,12 @@ USE_TORCH_COMPILE = os.environ.get("USE_TORCH_COMPILE", "0").strip() in (
 # Smaller = faster human detection (320 recommended on Jetson).
 YOLO_IMGSZ = int(os.environ.get("YOLO_IMGSZ", "320"))
 
+# Robust VisDrone human detector input size (YOLO11s @ 1280).
+YOLO_ROBUST_IMGSZ = int(os.environ.get("YOLO_ROBUST_IMGSZ", "1280"))
+
+# lightweight = yolov8n@320 (default), robust = yolo11s_visdrone@1280
+HUMAN_DETECTOR_TIER = os.environ.get("HUMAN_DETECTOR_TIER", "lightweight").strip().lower()
+
 ASYNC_POWER = os.environ.get("ASYNC_POWER", "1").strip() not in ("0", "false", "no")
 
 CUDNN_BENCHMARK = os.environ.get("CUDNN_BENCHMARK", "1").strip() not in (

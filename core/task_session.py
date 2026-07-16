@@ -4,6 +4,8 @@ from tools.detect_combined import detect_flood_and_human
 from tools.detect_flood import detect_flood
 from tools.detect_human import detect_human
 
+from core.human_detector_tier import get_status as human_detector_status
+
 VALID_TOOLS = frozenset({"detect_flood", "detect_human"})
 TOOL_ALIASES = {
     "detect_flood": "detect_flood",
@@ -102,13 +104,18 @@ class TaskSession:
             "active_tool": label,
             "active_tools": sorted(cls._active_tools),
             "inference_enabled": bool(cls._active_tools),
+            "human_detector": human_detector_status(),
         }
 
     @classmethod
     def _reset_tool_sessions(cls) -> None:
-        from tools.detect_flood import reset_session
+        from core.human_detector_tier import reset_idle
+        from tools.detect_flood import reset_session as reset_flood_session
+        from tools.detect_human import reset_session as reset_human_session
 
-        reset_session()
+        reset_flood_session()
+        reset_human_session()
+        reset_idle()
 
     @classmethod
     def activate(cls, tools: set[str]) -> dict:

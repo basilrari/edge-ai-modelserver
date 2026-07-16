@@ -11,6 +11,20 @@ import asyncio
 import json
 
 from core.inference_gate import is_busy, last_latency_ms
+from core.gateway_client import (
+    gateway_base_url,
+    get_status as gateway_get_status,
+    infer_prompt,
+    llm_base_url,
+    llm_reachable,
+)
+from core.gateway_tools import (
+    infer_plan_summary,
+    is_llm_infer_failure,
+    local_prompt_to_tool,
+    map_gateway_models_to_tool,
+    model_tasks_from_infer_response,
+)
 from core.offline_video_session import OfflineVideoSession
 from core.perf_config import WS_MIN_INTERVAL
 from core.task_session import TaskSession
@@ -31,6 +45,38 @@ def health():
 @app.get("/status")
 def status():
     return TaskSession.get_status()
+
+
+@app.get("/human/detector")
+def human_detector_info():
+    from core.human_detector_tier import get_status as human_detector_status
+
+    return human_detector_status()
+
+
+@app.post("/human/detector-tier")
+def set_human_detector_tier(request: dict):
+    from core.human_detector_tier import set_force_tier, set_tier
+
+    mode = (request.get("mode") or "").strip().lower()
+    if mode == "auto":
+        result = set_force_tier(None)
+        return {**TaskSession.get_status(), **result}
+
+    tier = request.get("tier") or request.get("force_tier")
+    if not tier:
+        return {
+            "error": "tier required (lightweight/robust) or mode=auto",
+            **TaskSession.get_status(),
+        }
+    try:
+        if request.get("force", True):
+            result = set_force_tier(tier)
+        else:
+            result = set_tier(tier)
+    except ValueError as exc:
+        return {"error": str(exc), **TaskSession.get_status()}
+    return {**TaskSession.get_status(), **result}
 
 
 @app.post("/tool")
@@ -59,6 +105,71 @@ def detect_human_api():
 @app.post("/stop")
 def stop_detection():
     return TaskSession.run_tool("idle")
+
+
+@app.get("/gateway/status")
+def gateway_status():
+    data = gateway_get_status()
+    reachable = data.get("gateway_reachable", True) and "error" not in data
+    llm_up = llm_reachable()
+    return {
+        "gateway_url": gateway_base_url(),
+        "llm_url": llm_base_url(),
+        "llm_reachable": llm_up,
+        "reachable": reachable,
+        **data,
+    }
+
+
+@app.post("/gateway/infer")
+def gateway_infer(request: dict):
+    prompt = (request.get("prompt") or "").strip()
+    if not prompt:
+        return {"error": "prompt required", "gateway_url": gateway_base_url()}
+    outcome = infer_prompt(prompt)
+    if outcome.get("gateway_reachable") is False:
+        return {
+            **outcome,
+            "plan": None,
+            "llm_reachable": llm_reachable(),
+            "llm_url": llm_base_url(),
+        }
+    plan = infer_plan_summary(outcome)
+    mapped = plan.get("model_server_tool")
+    fallback_used = False
+    if not mapped and is_llm_infer_failure(outcome):
+        mapped = local_prompt_to_tool(prompt)
+        if mapped:
+            fallback_used = True
+            plan = {
+                **plan,
+                "model_server_tool": mapped,
+                "fallback": "local_keywords",
+                "llm_offline": True,
+            }
+    tool_result = None
+    if mapped and request.get("activate", True):
+        if mapped == "detect_combined":
+            tool_body = {"tools": ["detect_flood", "detect_human"]}
+        else:
+            tool_body = {"tool": mapped}
+        tool_result = TaskSession.run_tool_request(tool_body)
+        if tool_result and not tool_result.get("skipped") and not tool_result.get("error"):
+            infer = TaskSession.run_active()
+            if infer and not infer.get("skipped"):
+                tool_result.update(infer)
+    return {
+        "gateway_url": gateway_base_url(),
+        "llm_url": llm_base_url(),
+        "llm_reachable": llm_reachable(),
+        "prompt": prompt,
+        "gateway": outcome,
+        "plan": plan,
+        "model_server_tool": mapped,
+        "fallback_used": fallback_used,
+        "activated": mapped is not None and tool_result is not None and not tool_result.get("error"),
+        "tool_result": tool_result,
+    }
 
 
 @app.get("/offline/videos")
@@ -127,7 +238,11 @@ def offline_export_info(video_id: str):
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    return templates.TemplateResponse(request, "index.html")
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {"gateway_url": gateway_base_url(), "llm_url": llm_base_url()},
+    )
 
 
 @app.get("/adaptive", response_class=HTMLResponse)
@@ -141,6 +256,7 @@ async def adaptive_dashboard(request: Request):
 def startup_event():
     print("[SYSTEM] Model server ready (idle — awaiting LLM tool command)")
     print("[SYSTEM] Tools: detect_flood | detect_human | both | idle/stop")
+    print(f"[SYSTEM] Gateway proxy: {gateway_base_url()} (GATEWAY_URL to override)")
     print("[SYSTEM] Perf: PARALLEL_COMBINED ASYNC_POWER USE_TENSORRT (see core/perf_config.py)")
 
 

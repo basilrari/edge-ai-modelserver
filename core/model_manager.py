@@ -5,7 +5,8 @@ from ultralytics import YOLO
 from pathlib import Path
 
 from core.cuda_runtime import require_cuda
-from core.perf_config import USE_TENSORRT, USE_TORCH_COMPILE, YOLO_IMGSZ
+from core.perf_config import USE_TENSORRT, USE_TORCH_COMPILE, YOLO_IMGSZ, YOLO_ROBUST_IMGSZ
+from core.human_detector_tier import get_tier
 from core.flood_models import build_deeplab_segmenter, build_resnet18_classifier
 from core.runtime_profiler import RuntimeProfiler
 
@@ -17,6 +18,20 @@ SEG_ENGINE_PATH = (
     Path(__file__).resolve().parents[1]
     / "models/flood_segmentation/DeepLabv3_plus/flood_segmentation/flood_deeplab.engine"
 )
+
+
+ROBUST_HUMAN_PT = (
+    Path(__file__).resolve().parents[1]
+    / "models/human_detector/yolo11s_visdrone_human_1280.pt"
+)
+ROBUST_HUMAN_ENGINE = (
+    Path(__file__).resolve().parents[1]
+    / "models/human_detector/yolo11s_visdrone_human_1280.engine"
+)
+
+# VisDrone human classes merged at inference as "human".
+VISDRONE_HUMAN_CLASS_IDS = (0, 1)  # pedestrian, people
+COCO_PERSON_CLASS_ID = 0
 
 
 class ModelManager:
@@ -47,6 +62,9 @@ class ModelManager:
         )
         self.human_imgsz = YOLO_IMGSZ
         self.human_backend = "yolov8n"
+        self.human_tier = "lightweight"
+        self.human_class_ids = (COCO_PERSON_CLASS_ID,)
+        self.human_detector_key = "yolov8n"
         self.clf_backend = "pytorch"
         self.seg_backend = "pytorch"
 
@@ -62,6 +80,23 @@ class ModelManager:
             return model
 
     def _resolve_human_weights(self) -> tuple[Path, str]:
+        tier = get_tier()
+
+        if tier == "robust":
+            self.human_tier = "robust"
+            self.human_imgsz = YOLO_ROBUST_IMGSZ
+            self.human_class_ids = VISDRONE_HUMAN_CLASS_IDS
+            self.human_detector_key = "yolo11s_visdrone_human_1280"
+            if USE_TENSORRT and ROBUST_HUMAN_ENGINE.exists():
+                return ROBUST_HUMAN_ENGINE, "tensorrt"
+            if ROBUST_HUMAN_PT.exists():
+                return ROBUST_HUMAN_PT, "pytorch"
+            print("[HUMAN] robust weights missing; falling back to lightweight yolov8n")
+
+        self.human_tier = "lightweight"
+        self.human_imgsz = YOLO_IMGSZ
+        self.human_class_ids = (COCO_PERSON_CLASS_ID,)
+        self.human_detector_key = "yolov8n"
         engine_path = self.base_dir / "yolov8n.engine"
         pt_path = self.base_dir / "yolov8n.pt"
         if USE_TENSORRT and engine_path.exists():
@@ -197,11 +232,15 @@ class ModelManager:
         if "human_detector" not in self.models:
 
             def _load():
-                print("Loading YOLOv8 model...")
                 weights, backend = self._resolve_human_weights()
+                print(f"Loading human detector ({self.human_tier})...")
                 model = YOLO(str(weights))
                 self.human_backend = backend
-                print(f"[HUMAN] backend={backend} weights={weights.name} imgsz={self.human_imgsz}")
+                print(
+                    f"[HUMAN] tier={self.human_tier} backend={backend} "
+                    f"weights={weights.name} imgsz={self.human_imgsz} "
+                    f"classes={self.human_class_ids}"
+                )
                 return model
 
             self.models["human_detector"] = (

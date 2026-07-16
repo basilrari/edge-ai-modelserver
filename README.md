@@ -55,6 +55,26 @@ python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
 
 Open http://127.0.0.1:8000/
 
+### Gateway (edge-ai-gateway)
+
+The dashboard sends natural-language commands through the model server to **edge-ai-gateway** (default `http://127.0.0.1:3000`). Gateway LLM tool names are mapped to model-server tools without renaming them:
+
+| Gateway (`category: model`) | Model server |
+|----------------------------|--------------|
+| `human_detect` | `detect_human` |
+| `flood_seg`, `flood_class` | `detect_flood` |
+| both flood + human in one plan | `detect_combined` |
+
+```bash
+# Start gateway (separate terminal)
+cd ~/edge-ai-gateway-master && cargo run
+
+# Optional override
+export GATEWAY_URL=http://127.0.0.1:3000
+```
+
+Dashboard: type a prompt in **LLM command** and press Send. **Quick presets** still call `/tool` directly (no gateway).
+
 Optional camera device:
 
 ```bash
@@ -116,6 +136,8 @@ Send **both tools in one request** for rescue scenarios. Calling `detect_flood` 
 | `/detect_human` | POST | Run human detection (activates human mode) |
 | `/detect_combined` | POST | Run flood + human on same frame |
 | `/stop` | POST | Stop all detection |
+| `/gateway/status` | GET | Proxy: edge-ai-gateway health + `active_command` |
+| `/gateway/infer` | POST | Proxy: LLM infer → map tools → activate model server (`{"prompt":"..."}`) |
 | `/ws/live` | WS | Stream inference while active |
 
 Each POST returns JSON with metrics and a base64 JPEG frame (`frame_base64`).

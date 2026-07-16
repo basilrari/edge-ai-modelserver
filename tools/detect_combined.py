@@ -9,10 +9,10 @@ import cv2
 import psutil
 
 from core.gpu_runtime import sync_all
-from core.perf_config import PARALLEL_COMBINED
+from core.perf_config import PARALLEL_COMBINED, YOLO_IMGSZ, YOLO_ROBUST_IMGSZ
 from core.power_monitor import get_power_monitor
 from core.shared_camera import get_camera, get_frame
-from tools.detect_flood import detect_flood
+from tools.detect_flood import detect_flood, get_session_context as get_flood_session_context
 from tools.detect_human import draw_humans_on_frame, run_human_inference
 
 _process = psutil.Process(os.getpid())
@@ -26,10 +26,12 @@ def _merge_status(flood_status: str, human_status: str) -> str:
     )
 
 
-def _human_payload(humans, infer_ms, backend):
+def _human_payload(humans, infer_ms, backend, tier, detector_key, tier_info=None):
     human_count = len(humans)
     status = "ALERT" if human_count > 0 else "NORMAL"
     fps = round(1000.0 / infer_ms, 2) if infer_ms > 0 else 0.0
+    imgsz = YOLO_ROBUST_IMGSZ if tier == "robust" else YOLO_IMGSZ
+    tier_info = tier_info or {}
     return {
         "human_count": human_count,
         "humans": humans,
@@ -40,10 +42,17 @@ def _human_payload(humans, infer_ms, backend):
             "instant_fps": fps,
             "human_count": human_count,
         },
+        "human_detector": tier_info,
+        "model_switches": tier_info.get("tier_switches") or {},
         "active_models": {
-            "detector": "YOLOv8n",
-            "detector_key": "yolov8n",
+            "detector": detector_key,
+            "detector_key": detector_key,
+            "tier": tier,
             "backend": backend,
+            "imgsz": imgsz,
+            "human_label": "human",
+            "mode": tier_info.get("mode", "auto"),
+            "selection": tier_info.get("metadata"),
         },
     }
 
@@ -55,24 +64,41 @@ def detect_flood_and_human(frame=None, encode_frame=True):
 
     total_start = time.perf_counter()
     parallel = PARALLEL_COMBINED
+    human_context = get_flood_session_context()
 
     if parallel:
         with ThreadPoolExecutor(max_workers=2, thread_name_prefix="infer") as pool:
             flood_future = pool.submit(
                 detect_flood, frame=frame, encode_frame=False
             )
-            human_future = pool.submit(run_human_inference, frame)
+            human_future = pool.submit(
+                run_human_inference, frame, 0.4, human_context
+            )
             flood = flood_future.result()
-            humans, human_ms, backend = human_future.result()
+            humans, human_ms, backend, tier, detector_key, tier_info = (
+                human_future.result()
+            )
         sync_all()
-        human = _human_payload(humans, human_ms, backend)
+        human_context["flood_ratio"] = float(
+            flood.get("segmentation", {}).get("flood_ratio", 0.0)
+        )
+        human = _human_payload(
+            humans, human_ms, backend, tier, detector_key, tier_info
+        )
     else:
         flood = detect_flood(frame=frame, encode_frame=False)
         if flood.get("error"):
             flood["active_tools"] = ["detect_flood", "detect_human"]
             return flood
-        humans, human_ms, backend = run_human_inference(frame)
-        human = _human_payload(humans, human_ms, backend)
+        human_context["flood_ratio"] = float(
+            flood.get("segmentation", {}).get("flood_ratio", 0.0)
+        )
+        humans, human_ms, backend, tier, detector_key, tier_info = run_human_inference(
+            frame, 0.4, human_context
+        )
+        human = _human_payload(
+            humans, human_ms, backend, tier, detector_key, tier_info
+        )
 
     if flood.get("error"):
         flood["active_tools"] = ["detect_flood", "detect_human"]
@@ -129,6 +155,7 @@ def detect_flood_and_human(frame=None, encode_frame=True):
         "human_count": human_count,
         "humans": humans,
         "human_detection": human,
+        "human_detector": human.get("human_detector"),
         "camera": {"device": getattr(get_camera(), "device_path", "offline")},
         "system": {
             "status": combined_status,
