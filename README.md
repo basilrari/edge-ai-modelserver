@@ -75,11 +75,8 @@ export GATEWAY_URL=http://127.0.0.1:3000
 
 Dashboard: type a prompt in **LLM command** and press Send. **Quick presets** still call `/tool` directly (no gateway).
 
-Optional camera device:
+<img width="624" height="687" alt="dashboard" src="https://github.com/user-attachments/assets/7e250fbe-1a91-44c0-a77e-7d059812b759" />
 
-```bash
-export CAMERA_DEVICE=/dev/video0
-```
 
 ## LLM / API usage
 
