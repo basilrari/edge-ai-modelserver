@@ -14,28 +14,34 @@ The server starts **idle** and only runs inference when an external LLM (or you 
 - **Live dashboard** — task status, metrics, power, and annotated video at `/`
 - **WebSocket stream** — continuous inference while a tool is active (`WS /ws/live`)
 - **Power metrics** — idle / inference / extra power via tegrastats (background sampling)
-- **Performance** — parallel combined inference, optional TensorRT YOLO, CUDA streams
+- **Performance** — parallel combined inference, TensorRT engines included in repo, CUDA streams
+- **Benchmark artifacts** — per-clip metrics CSVs, latency/FPS plots, and HTML reports committed under `benchmarks/results/`
 
 ## Performance tuning (Jetson)
 
 Combined flood + human runs **in parallel** on separate CUDA streams by default.
 
+**TensorRT engines ship with this repo** — clone and run with `USE_TENSORRT=1` (default). Re-export only if you retrain weights or move to a different Jetson/CUDA build:
+
 ```bash
-# Export ALL TensorRT engines (YOLO + ResNet18 + DeepLab) — run once on Jetson
+# Re-export ALL TensorRT engines (optional — only if missing or stale)
 bash tools/install_export_deps.sh
 python3 tools/export_tensorrt.py
-# Or flood models only (~10–20 min first time):
+# Or flood models only (~10–20 min):
 python3 tools/export_flood_tensorrt.py
 
-# Produces:
-#   yolov8n.engine
-#   models/human_detector/yolo11s_visdrone_human_1280.engine
-#   models/flood_classifier/flood_resnet18.engine
-#   models/flood_segmentation/.../flood_deeplab.engine
-
-# Robust human only (~5–15 min on Jetson):
+# Re-export robust human only (~5–15 min):
 python3 tools/export_robust_human.py
 ```
+
+Pre-built artifacts in repo (PyTorch + ONNX + TensorRT):
+
+| Model | `.pt` / `.pth` | `.onnx` | `.engine` |
+|-------|----------------|---------|-----------|
+| YOLOv8n (lightweight human) | `yolov8n.pt` | `yolov8n.onnx` | `yolov8n.engine` |
+| YOLO11s VisDrone (robust human) | `models/human_detector/yolo11s_visdrone_human_1280.pt` | same dir `.onnx` | same dir `.engine` |
+| ResNet18 flood classifier | `models/flood_classifier/flood_resnet18.pth` | `.onnx` | `.engine` |
+| DeepLabv3+ flood segmenter | `models/flood_segmentation/.../best_model.pth` | `flood_deeplab.onnx` | `flood_deeplab.engine` |
 
 # Optional env toggles (defaults shown)
 export PARALLEL_COMBINED=1    # overlap flood + human GPU work
@@ -142,20 +148,13 @@ The server runs **two human detectors** and picks between them every frame based
 
 Standard COCO YOLOv8n is tuned for ground-level video. SAR drones see humans from above at long range — often only a few pixels tall. The **robust** tier uses a **YOLO11s** checkpoint fine-tuned on **VisDrone** aerial imagery at **1280px** input, which dramatically improves recall on small humans in flood/rescue footage.
 
-Weights (not committed — build on Jetson):
-
-```
-models/human_detector/yolo11s_visdrone_human_1280.pt      # PyTorch
-models/human_detector/yolo11s_visdrone_human_1280.engine  # TensorRT (recommended)
-```
-
-Export TensorRT engine:
+**Weights and TensorRT engines are included in the repo** (see [Model weights](#model-weights)). To re-export after a Jetson OS upgrade:
 
 ```bash
 python3 tools/export_robust_human.py
 ```
 
-If robust weights are missing, the server **falls back to YOLOv8n** automatically.
+If robust weights are missing locally, the server **falls back to YOLOv8n** automatically.
 
 ### Human tier API & dashboard
 
@@ -368,21 +367,61 @@ python3 tools/human_detection_live.py --frames 50 --conf 0.35
 
 ## Model weights
 
-Included in repo:
+All deployed inference weights are **committed to this repository** (PyTorch checkpoints, ONNX exports, and Jetson TensorRT `.engine` files).
 
-- `yolov8n.pt` — lightweight human detection (export to `yolov8n.engine`)
-- `models/flood_classifier/flood_resnet18.pth` — export to `flood_resnet18.engine`
-- `models/flood_segmentation/DeepLabv3_plus/flood_segmentation/best_model.pth` — export to `flood_deeplab.engine`
+| Role | PyTorch | ONNX | TensorRT |
+|------|---------|------|----------|
+| Lightweight human (YOLOv8n) | `yolov8n.pt` | `yolov8n.onnx` | `yolov8n.engine` |
+| Robust human (YOLO11s VisDrone @ 1280) | `models/human_detector/yolo11s_visdrone_human_1280.pt` | `.../yolo11s_visdrone_human_1280.onnx` | `.../yolo11s_visdrone_human_1280.engine` |
+| Flood classifier (ResNet18) | `models/flood_classifier/flood_resnet18.pth` | `flood_resnet18.onnx` | `flood_resnet18.engine` |
+| Flood segmenter (DeepLabv3+) | `models/flood_segmentation/DeepLabv3_plus/flood_segmentation/best_model.pth` | `flood_deeplab.onnx` | `flood_deeplab.engine` |
+| Legacy U-Net | `models/flood_segmentation/U-Net/unet_model.pth` | — | — |
 
-Built on Jetson (not committed; see `.gitignore`):
+`ModelManager` prefers `.engine` when `USE_TENSORRT=1` and the file exists; otherwise it loads `.pt` / `.pth`.
 
-- `models/human_detector/yolo11s_visdrone_human_1280.pt` — robust YOLO11s VisDrone weights
-- `models/human_detector/yolo11s_visdrone_human_1280.engine` — TensorRT export (`tools/export_robust_human.py`)
-- `yolov8n.engine`, `flood_resnet18.engine`, `flood_deeplab.engine` — `tools/export_tensorrt.py`
+**Not in repo** (too large — download or generate locally):
 
-TensorRT `.engine` files are built on-device (not committed; run export scripts).
+- Training datasets (`models/flood_classifier/dataset/`, segmentation `JPEGImages/`, etc.)
+- Benchmark source/overlay videos (`benchmarks/videos/`, `benchmarks/results/videos/`, `*_overlay.mp4`)
 
-Training datasets and large binaries are excluded (see `.gitignore`).
+---
+
+## Benchmark results & performance plots
+
+Pre-computed evaluation artifacts are committed so you can review Jetson performance without re-running benchmarks.
+
+### Aggregate report (all clips)
+
+| Path | Contents |
+|------|----------|
+| `benchmarks/results/report/report.html` | Cross-clip HTML report (open in browser) |
+| `benchmarks/results/report/REPORT.md` | Markdown summary |
+| `benchmarks/results/report/summary.json` | Mean latency, FPS, flood ratio |
+| `benchmarks/results/report/*.png` | Latency vs altitude, FPS, flood ratio, model-switch events, load/unload |
+| `benchmarks/results/drone_video_benchmark.csv` | Per-run benchmark table |
+| `benchmarks/results/system_benchmark.json` | System-level benchmark snapshot |
+
+### Per-video dashboard exports (`benchmarks/results/dashboard/<clip_id>/`)
+
+Each clip folder includes:
+
+- `metrics.csv` — per-frame latency, FPS, flood ratio, human count, CPU, memory, power
+- `summary.json` / `REPORT.md` / `report.html`
+- Plots: `series_*.png`, `overview_per_frame.png`, `flood_ratio_by_altitude.png`, `human_count_over_time.png`, `tradeoff_altitude_latency.png`, `model_load_times.png`
+
+Example clips with full plot sets: `chittur_river_rescue`, `youtube_cumbria_flood_rescue_828618`, `archive_flood_airfield_274c83`, `kherson_drone_rescue`.
+
+### Live-server runtime plots (`logs/`)
+
+CUDA profiling outputs from on-device runs:
+
+- `logs/metrics.csv`, `logs/metrics_cuda.csv`
+- `logs/*_plot.png`, `logs/*_plot_cuda.png` — classification, segmentation, latency, FPS, CPU, memory, power, model-switch timing
+- `logs/cuda_summary.json`
+
+Regenerate benchmarks: see `benchmarks/README.md` and `tools/run_drone_video_benchmark.py`.
+
+---
 
 ## Hardware
 
