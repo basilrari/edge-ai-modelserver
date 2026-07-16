@@ -28,9 +28,9 @@ It does **not** fly the drone. Flying is handled separately by the Drone Server 
 
 ## What can it do today?
 
-- **Flood detection** — fast check (ResNet18) + detailed water map (DeepLabv3+)
-- **Human detection** — people in green boxes (YOLOv8n)
-- **Combined rescue mode** — flood + people on the **same frame**
+- **Flood detection** — fast check (ResNet18) + detailed water map (DeepLabv3+); switches primary model when flood ratio ≥ 20%
+- **Human detection** — **two detectors**: fast YOLOv8n (patrol) or **YOLO11s VisDrone** (robust, 1280px) for tiny aerial humans; auto-picks based on altitude, visibility, flood level, and mission priority
+- **Combined rescue mode** — flood + people on the **same frame**; flood level can trigger the stronger human model
 - **GPS estimates** — most flooded grid cell + each person’s location *(simulated ref — no Pixhawk yet)*
 - **Live dashboard** — video, metrics, power, WebSocket stream
 - **Offline video testing** — upload MP4 → CSV, plots, overlay video, report
@@ -42,9 +42,9 @@ It does **not** fly the drone. Flying is handled separately by the Drone Server 
 1. **Command arrives** — Gateway or dashboard says: start flood / human / both / stop  
 2. **Task Session** — turns on the right mode; loads AI models into GPU (warmup)  
 3. **Camera** — grabs one snapshot (live USB camera or offline video file)  
-4. **Context check** — CPU, memory, power *(drone battery/GPS simulated for now)*  
-5. **Smart choice** — run slow detailed flood map only when needed (saves ~3 s on dry scenes)  
-6. **AI runs** — classify → segment (if needed) → detect humans (if combined)  
+4. **Context check** — CPU, memory, power, simulated drone altitude/priority/visibility, and **live flood ratio** from the last frame  
+5. **Smart choice** — skip slow flood map when scene is dry; pick **lightweight vs robust** human model (YOLOv8n ↔ YOLO11s) from context  
+6. **AI runs** — classify → segment (if needed) → detect humans with the selected YOLO tier (if human/combined)  
 7. **Overlays** — flood mask, 4×4 grid, red dot on worst cell, person boxes  
 8. **GPS math** — estimate lat/lon from camera + fake drone reference point  
 9. **Metrics** — FPS, latency (~30 ms steady), memory, Jetson power  

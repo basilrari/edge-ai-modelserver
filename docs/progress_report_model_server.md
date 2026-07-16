@@ -97,9 +97,16 @@ A self-contained perception service that starts **idle** and runs inference only
 - Collects system context: CPU, memory, GPU load (**real**)
 - UAV/environment/mission context currently **simulated** (no flight controller yet)
 
-**Model Selector** — `core/model_selector.py`
-- Chooses **primary** model from flood ratio (ResNet18 ↔ DeepLabv3+)
+**Model Selector (flood)** — `core/model_selector.py`
+- Chooses **primary** model from flood ratio (ResNet18 ↔ DeepLabv3+ at ratio ≥ 0.20)
 - Gates the expensive segmenter on battery / CPU constraints
+- Works with `core/segment_policy.py` to skip DeepLab when ResNet says dry (`SMART_SEGMENT`)
+
+**Human Model Selector** — `core/human_model_selector.py`, `core/human_detector_tier.py`
+- **lightweight:** YOLOv8n @ 320 (COCO person) — fast patrol
+- **robust:** YOLO11s VisDrone @ 1280 — small/distant aerial humans
+- Escalates to robust on high priority, altitude ≥ 60 m, low visibility, **flood_ratio ≥ 0.20**, or borderline SAR (priority + altitude)
+- Dashboard/API force override via `POST /human/detector-tier`; combined mode feeds live `flood_ratio` into human context
 
 ---
 
