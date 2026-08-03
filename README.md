@@ -182,8 +182,6 @@ curl -X POST http://localhost:8000/human/detector-tier \
 
 On the dashboard **Human detection** panel: **Force lightweight**, **Force robust**, or **Auto (context)**. Tier switches unload the previous weights and reload the new detector (TensorRT engine preferred when `USE_TENSORRT=1`).
 
-<img width="1880" height="937" alt="new dashboard" src="https://github.com/user-attachments/assets/5d05bccd-f5ae-41e0-addb-2a589b10905a" />
-
 ---
 
 ## Context-aware adaptive switching (all models)
