@@ -6,6 +6,122 @@ let inputSource = "camera";
 let offlineRunning = false;
 let offlineStepBusy = false;
 let humanDetectorTier = "lightweight";
+let floodSegmenterTier = "lightweight";
+
+const LIVE_CHART_LEN = 50;
+const latencyHistory = [];
+const fpsHistory = [];
+
+function resetLiveCharts() {
+    latencyHistory.length = 0;
+    fpsHistory.length = 0;
+    setText("chart-latency-val", "—");
+    setText("chart-fps-val", "—");
+    drawLiveChart("chart-latency", [], "#00e5ff", "ms");
+    drawLiveChart("chart-fps", [], "#00ffa6", "");
+}
+
+function extractLiveMetrics(data) {
+    const m = data.metrics || {};
+    const hm = data.human_detection?.metrics || {};
+    let latency = m.total_latency_ms ?? m.combined_latency_ms ?? data.system?.latency_ms;
+    if (latency == null && hm.detection_ms != null && isCombinedMode()) {
+        latency = Number(m.classification_ms || 0) + Number(m.segmentation_ms || 0) + Number(hm.detection_ms || 0);
+    }
+    const fps = m.instant_fps ?? data.system?.fps ?? hm.instant_fps;
+    return {
+        latency: Number(latency),
+        fps: Number(fps),
+    };
+}
+
+function recordLiveMetrics(data) {
+    const { latency, fps } = extractLiveMetrics(data);
+    if (Number.isFinite(latency) && latency > 0) {
+        latencyHistory.push(latency);
+        if (latencyHistory.length > LIVE_CHART_LEN) latencyHistory.shift();
+        setText("chart-latency-val", latency.toFixed(1) + " ms");
+    }
+    if (Number.isFinite(fps) && fps > 0) {
+        fpsHistory.push(fps);
+        if (fpsHistory.length > LIVE_CHART_LEN) fpsHistory.shift();
+        setText("chart-fps-val", fps.toFixed(2));
+    }
+    drawLiveChart("chart-latency", latencyHistory, "#00e5ff", "ms");
+    drawLiveChart("chart-fps", fpsHistory, "#00ffa6", "");
+}
+
+function drawLiveChart(canvasId, values, color, unit) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(200, Math.floor(rect.width * dpr));
+    const h = Math.max(80, Math.floor(rect.height * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+    }
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#020617";
+    ctx.fillRect(0, 0, w, h);
+
+    const padL = 36 * dpr;
+    const padR = 8 * dpr;
+    const padT = 10 * dpr;
+    const padB = 18 * dpr;
+    const plotW = w - padL - padR;
+    const plotH = h - padT - padB;
+
+    if (!values.length) {
+        ctx.fillStyle = "#475569";
+        ctx.font = `${12 * dpr}px monospace`;
+        ctx.fillText("waiting for data…", padL, h / 2);
+        return;
+    }
+
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = Math.max(max - min, max * 0.15, 1);
+    const yMin = Math.max(0, min - span * 0.1);
+    const yMax = max + span * 0.1;
+
+    ctx.strokeStyle = "#1e293b";
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+        const y = padT + (plotH * i) / 4;
+        ctx.beginPath();
+        ctx.moveTo(padL, y);
+        ctx.lineTo(w - padR, y);
+        ctx.stroke();
+        const val = yMax - ((yMax - yMin) * i) / 4;
+        ctx.fillStyle = "#64748b";
+        ctx.font = `${10 * dpr}px monospace`;
+        ctx.fillText(val.toFixed(unit === "ms" ? 0 : 1), 4 * dpr, y + 4 * dpr);
+    }
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2 * dpr;
+    ctx.beginPath();
+    values.forEach((v, i) => {
+        const x = padL + (plotW * i) / Math.max(values.length - 1, 1);
+        const y = padT + plotH * (1 - (v - yMin) / (yMax - yMin));
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    const last = values[values.length - 1];
+    const lx = padL + plotW;
+    const ly = padT + plotH * (1 - (last - yMin) / (yMax - yMin));
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(lx, ly, 4 * dpr, 0, Math.PI * 2);
+    ctx.fill();
+}
 
 function humanModelsFromPayload(data) {
     if (data?.active_models?.tier) return data.active_models;
@@ -13,6 +129,133 @@ function humanModelsFromPayload(data) {
     if (data?.human_detector?.tier) return data.human_detector;
     if (data?.human_detector) return data.human_detector;
     return null;
+}
+
+function floodSegFromPayload(data) {
+    if (data?.flood_segmenter?.tier) return data.flood_segmenter;
+    if (data?.active_models?.segmenter_tier) {
+        return {
+            tier: data.active_models.segmenter_tier,
+            segmenter_label: data.active_models.segmenter,
+            segmenter_key: data.active_models.segmenter_key,
+            mode: data.flood_segmenter?.mode || "auto",
+        };
+    }
+    return data?.flood_segmenter || null;
+}
+
+function renderFloodSegmenterTier(data) {
+    const status = data?.flood_segmenter || {};
+    const segInfo = floodSegFromPayload(data) || {};
+    const models = data?.active_models || {};
+    const mode = status.mode || segInfo.mode || "auto";
+    const inferenceActive = Boolean(
+        status.inference_active
+        || data?.active_tool === "detect_flood"
+        || data?.active_tool === "detect_combined"
+        || data?.task === "detect_flood"
+        || data?.task === "detect_combined"
+    );
+
+    const tier = inferenceActive
+        ? (segInfo.tier || models.segmenter_tier || status.tier || floodSegmenterTier || "lightweight")
+        : null;
+    if (tier) floodSegmenterTier = tier;
+
+    const label = tier === "robust"
+        ? "Robust"
+        : tier === "lightweight"
+            ? "Lightweight"
+            : "—";
+    const backend = models.segmenter_backend ?? status.backend ?? "—";
+    const m = data?.metrics || {};
+
+    setText("flood-seg-tier-mode", mode === "forced" ? "forced" : "auto");
+    setText("flood-seg-primary", tier ? label : "—");
+    setText("flood-seg-backend", backend);
+    setText(
+        "flood-seg-skipped",
+        m.segmentation_skipped == null ? "—" : (m.segmentation_skipped ? "yes" : "no")
+    );
+    setText("flood-seg-ms-inline", m.segmentation_ms != null ? Number(m.segmentation_ms).toFixed(1) + " ms" : "—");
+
+    const idleNote = document.getElementById("adaptive-idle-note");
+    if (idleNote) {
+        if (!inferenceActive) {
+            idleNote.style.display = "block";
+            idleNote.innerText = status.status_note
+                || "Flood segmentation and human detection tiers switch from mission context.";
+        } else {
+            idleNote.style.display = "none";
+        }
+    }
+
+    let switchText = "none";
+    const sw = status.last_switch
+        || data?.model_switches?.seg_tier
+        || segInfo.tier_switches?.tier;
+    if (sw?.from && sw?.to) {
+        const fromL = sw.from_label || sw.from;
+        const toL = sw.to_label || sw.to;
+        const reason = sw.reason ? ` (${sw.reason})` : "";
+        switchText = `${fromL} → ${toL}${reason}`;
+    }
+    setText("flood-seg-tier-switch", switchText);
+
+    const basis = segInfo.metadata?.decision_basis
+        || status.last_selection?.metadata?.decision_basis
+        || data?.context
+        || {};
+    setText("flood-ctx-alt", basis.altitude != null ? Number(basis.altitude).toFixed(1) + " m" : "—");
+    setText("flood-ctx-priority", basis.priority != null ? Number(basis.priority).toFixed(2) : "—");
+    setText("flood-ctx-visibility", basis.visibility != null ? Number(basis.visibility).toFixed(2) : "—");
+    setText("flood-ctx-flood", basis.flood_ratio != null ? Number(basis.flood_ratio).toFixed(3) : "—");
+    const clfLabel = basis.classification_label
+        || data?.classification?.raw_label
+        || (basis.clf_class_index === 0 ? "Flood" : basis.clf_class_index === 1 ? "Non-Flood" : null);
+    setText("flood-ctx-clf", clfLabel ?? "—");
+    const batt = basis.battery != null ? Number(basis.battery).toFixed(0) + "%" : "—";
+    const cpu = basis.cpu_usage != null ? Number(basis.cpu_usage).toFixed(0) + "%" : "—";
+    setText("flood-ctx-power", `${batt} / ${cpu}`);
+
+    const chipLight = document.getElementById("chip-seg-light");
+    const chipRobust = document.getElementById("chip-seg-robust");
+    const btnAuto = document.getElementById("btn-flood-seg-auto");
+    const btnForceLight = document.getElementById("btn-flood-seg-light");
+    const btnForceRobust = document.getElementById("btn-flood-seg-robust");
+    if (chipLight) chipLight.classList.toggle("primary", tier === "lightweight");
+    if (chipRobust) chipRobust.classList.toggle("primary", tier === "robust");
+    if (btnAuto) btnAuto.classList.toggle("active", mode !== "forced");
+    if (btnForceLight) btnForceLight.classList.toggle("active", mode === "forced" && status.force_tier === "lightweight");
+    if (btnForceRobust) btnForceRobust.classList.toggle("active", mode === "forced" && status.force_tier === "robust");
+}
+
+async function setFloodSegmenterMode(mode) {
+    const body = mode === "auto" ? { mode: "auto" } : { tier: mode, force: true };
+    try {
+        const res = await fetch("/flood/segmenter-tier", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+        renderFloodSegmenterTier(data);
+        const logBox = document.getElementById("logs");
+        if (logBox) {
+            const msg = mode === "auto"
+                ? "[FLOOD SEG TIER] mode → auto (context-aware)"
+                : `[FLOOD SEG TIER] forced → ${mode}`;
+            logBox.innerText += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+    } catch (e) {
+        console.error(e);
+        alert(e.message || e);
+    }
 }
 
 function renderHumanDetectorTier(data) {
@@ -43,15 +286,9 @@ function renderHumanDetectorTier(data) {
     setText("human-primary-model", tier ? label : "—");
     setText("human-backend", backend);
 
-    const idleNote = document.getElementById("human-tier-idle-note");
-    if (idleNote) {
-        if (!inferenceActive) {
-            idleNote.style.display = "block";
-            idleNote.innerText = status.status_note
-                || "Models switch automatically from mission context.";
-        } else {
-            idleNote.style.display = "none";
-        }
+    const idleNote = document.getElementById("adaptive-idle-note");
+    if (idleNote && inferenceActive && !document.getElementById("flood-seg-tier-mode")) {
+        idleNote.style.display = "none";
     }
 
     let switchText = "none";
@@ -125,6 +362,7 @@ function setText(id, value) {
 }
 
 function setStatusBadge(el, systemStatus) {
+    if (!el) return;
     const s = systemStatus || "NORMAL";
     el.innerText = s;
     if (s === "IDLE") {
@@ -154,20 +392,33 @@ function updateTaskUI(tool, tools) {
 
     const el = document.getElementById("active-task");
     const label = isCombinedMode() ? "detect_flood + detect_human" : activeTool;
-    el.innerText = label;
-    el.className =
-        isCombinedMode() ? "mode-combined"
-        : activeTool === "detect_flood" ? "mode-flood"
-        : activeTool === "detect_human" ? "mode-human"
-        : "mode-idle";
+    if (el) {
+        el.innerText = label;
+        el.className =
+            isCombinedMode() ? "mode-combined"
+            : activeTool === "detect_flood" ? "mode-flood"
+            : activeTool === "detect_human" ? "mode-human"
+            : "mode-idle";
+    }
 
     const showFlood = activeTool === "detect_flood" || isCombinedMode();
     const showHuman = activeTool === "detect_human" || isCombinedMode();
     const isActive = activeTool !== "idle";
 
-    document.getElementById("idle-panel").classList.toggle("hidden", isActive);
+    const appContainer = document.getElementById("app-container");
+    const pageLayout = document.getElementById("page-layout");
+    const rightColumn = document.getElementById("right-column");
+    document.body.classList.toggle("inference-active", isActive);
+    if (appContainer) appContainer.classList.toggle("inference-active", isActive);
+    if (pageLayout) pageLayout.classList.toggle("inference-active", isActive);
+    if (rightColumn) rightColumn.classList.toggle("hidden", !isActive);
+
     const activeDash = document.getElementById("active-dashboard");
     if (activeDash) activeDash.classList.toggle("hidden", !isActive);
+
+    const liveCharts = document.getElementById("live-charts-panel");
+    if (liveCharts) liveCharts.classList.toggle("hidden", !isActive);
+    if (!isActive) resetLiveCharts();
 
     const toggleBlock = (id, show) => {
         const el = document.getElementById(id);
@@ -183,11 +434,11 @@ function updateTaskUI(tool, tools) {
     toggleBlock("block-human-results", showHuman);
     toggleBlock("block-flood-loc", showFlood);
     toggleBlock("block-human-loc", showHuman);
+    toggleBlock("flood-context-basis", showFlood);
+    toggleBlock("human-context-basis", showHuman);
     toggleBlock("flood-metric-clf", showFlood);
     toggleBlock("flood-metric-seg", showFlood);
     toggleBlock("human-metric-det", showHuman);
-
-    setLlmPromptsEnabled(!isActive);
 
     const feedTitle = document.getElementById("feed-title");
     if (feedTitle) {
@@ -463,15 +714,15 @@ function renderFlood(data) {
     setText("raw-classification", data.classification?.raw_label || "—");
     setText("flood_ratio", Number(data.segmentation?.flood_ratio ?? 0).toFixed(3));
     setText("primary-model", data.active_models?.primary || data.primary_model || "—");
-    setText("overlay-mode", segActive ? "4×4 grid (DeepLab)" : "none (ResNet)");
+    setText("overlay-mode", segActive ? `4×4 grid (${data.active_models?.segmenter || "DeepLab"})` : "none (ResNet)");
     renderGridLocalization(data.grid);
 
     const resnet = document.getElementById("chip-resnet");
-    const deeplab = document.getElementById("chip-deeplab");
-    if (resnet && deeplab) {
+    if (resnet) {
         resnet.classList.toggle("primary", !segActive);
-        deeplab.classList.toggle("primary", segActive);
     }
+
+    renderFloodSegmenterTier(data);
 
     let switchText = "none";
     if (data.model_switches?.primary) {
@@ -551,6 +802,7 @@ function renderHuman(data) {
 
 function renderIdle(data) {
     renderHumanDetectorTier({ human_detector: { mode: "auto", inference_active: false } });
+    renderFloodSegmenterTier({ flood_segmenter: { mode: "auto", inference_active: false } });
     setText("classification", "—");
     setText("raw-classification", "—");
     setText("flood_ratio", "—");
@@ -574,19 +826,22 @@ function renderIdle(data) {
     renderGridLocalization(null);
     setText("camera-device", "—");
     const resnet = document.getElementById("chip-resnet");
-    const deeplab = document.getElementById("chip-deeplab");
+    const chipSegLight = document.getElementById("chip-seg-light");
+    const chipSegRobust = document.getElementById("chip-seg-robust");
     const chipLight = document.getElementById("chip-human-light");
     const chipRobust = document.getElementById("chip-human-robust");
     if (resnet) resnet.classList.remove("primary");
-    if (deeplab) deeplab.classList.remove("primary");
+    if (chipSegLight) chipSegLight.classList.remove("primary");
+    if (chipSegRobust) chipSegRobust.classList.remove("primary");
     if (chipLight) chipLight.classList.remove("primary");
     if (chipRobust) chipRobust.classList.remove("primary");
+    const idleNote = document.getElementById("adaptive-idle-note");
+    if (idleNote) idleNote.style.display = "block";
     setStatusBadge(document.getElementById("status"), "IDLE");
 }
 
 function showIdleDashboard(message) {
     updateTaskUI("idle", []);
-    setLlmPromptsEnabled(true);
     renderGatewayResult("Waiting for a command…");
     renderIdle({
         message:
@@ -595,6 +850,16 @@ function showIdleDashboard(message) {
     });
     const video = document.getElementById("video");
     if (video) video.removeAttribute("src");
+    const rightColumn = document.getElementById("right-column");
+    if (rightColumn) rightColumn.classList.add("hidden");
+    const appContainer = document.getElementById("app-container");
+    const pageLayout = document.getElementById("page-layout");
+    document.body.classList.remove("inference-active");
+    if (appContainer) appContainer.classList.remove("inference-active");
+    if (pageLayout) pageLayout.classList.remove("inference-active");
+    const liveCharts = document.getElementById("live-charts-panel");
+    if (liveCharts) liveCharts.classList.add("hidden");
+    resetLiveCharts();
 }
 
 function renderCombined(data) {
@@ -620,6 +885,9 @@ function renderPayload(data) {
     if (data.human_detector) {
         renderHumanDetectorTier(data);
     }
+    if (data.flood_segmenter || data.active_models?.segmenter_tier || data.metrics?.segmenter_tier) {
+        renderFloodSegmenterTier(data);
+    }
 
     const tool = data.active_tool || data.task || activeTool;
     const tools = data.active_tools || activeTools;
@@ -636,12 +904,15 @@ function renderPayload(data) {
     else if (tool === "detect_human") renderHuman(data);
     else showIdleDashboard(data.message);
 
+    recordLiveMetrics(data);
+
     setText("input-source", data.input_source || (data.offline ? "offline_video" : "camera"));
     setText("camera-device", data.camera?.device || "—");
 
     const frameB64 = data.frame_base64 || data.frame;
-    if (frameB64) {
-        document.getElementById("video").src = "data:image/jpeg;base64," + frameB64;
+    const videoEl = document.getElementById("video");
+    if (frameB64 && videoEl) {
+        videoEl.src = "data:image/jpeg;base64," + frameB64;
     }
 
     if (data.log || data.message) {
@@ -658,6 +929,7 @@ async function fetchStatus() {
         const res = await fetch("/status");
         const data = await res.json();
         renderHumanDetectorTier(data);
+        renderFloodSegmenterTier(data);
         if (!data.inference_enabled || data.active_tool === "idle") {
             if (activeTool === "idle" && !offlineRunning) {
                 disconnectWebSocket();
@@ -733,8 +1005,8 @@ function renderGatewayResult(html) {
 function setGatewayUiBusy(busy) {
     const input = document.getElementById("gateway-prompt");
     const btn = document.getElementById("btn-gateway-send");
-    if (input) input.disabled = busy || activeTool !== "idle";
-    if (btn) btn.disabled = busy || activeTool !== "idle";
+    if (input) input.disabled = busy;
+    if (btn) btn.disabled = busy;
 }
 
 function updateGatewayStatusBar(data) {
@@ -797,6 +1069,7 @@ async function submitGatewayPrompt() {
         const gw = data.gateway || {};
         const plan = data.plan || {};
         const mapped = data.model_server_tool || plan.model_server_tool;
+        const gatewayDown = data.gateway_reachable === false;
         const llmMs = gw.llm_latency_ms != null ? `${gw.llm_latency_ms} ms` : "—";
 
         let html = `LLM ${llmMs}`;
@@ -817,15 +1090,19 @@ async function submitGatewayPrompt() {
         }
         if (data.error || gw.error) {
             html += `<br><span class="err">${data.error || gw.error}</span>`;
+        }
+        if (data.fallback_used && mapped) {
+            const via = gatewayDown
+                ? "Gateway offline — keyword fallback"
+                : "LLM offline — keyword fallback";
+            html += `<br>${via} → <span class="mapped-tool">${mapped}</span>`;
         } else if (gw.action_taken && String(gw.action_taken).includes("llm_http_failed")) {
             html += `<br><span class="err">LLM server offline at ${data.llm_url || "port 8080"} — start llama-server / OpenAI-compatible API.</span>`;
-            if (data.fallback_used && mapped) {
-                html += `<br>Keyword fallback → <span class="mapped-tool">${mapped}</span>`;
-            } else if (!mapped) {
+            if (!mapped) {
                 html += "<br>No keyword match — use Quick presets or start the LLM.";
             }
-        } else if (data.fallback_used && mapped) {
-            html += `<br>LLM offline — keyword fallback → <span class="mapped-tool">${mapped}</span>`;
+        } else if (gatewayDown && !mapped) {
+            html += "<br>Gateway offline and no keyword match — use Quick presets or start the gateway.";
         } else if (gw.category === "none" || plan.is_none) {
             html += `<br>No model tool — ${gw.tool_name || gw.action_taken || "no action"}`;
         } else if (!mapped && plan.drone_steps?.length) {
@@ -849,11 +1126,12 @@ async function submitGatewayPrompt() {
             setText("input-source", "camera");
             const tool = toolResult.active_tool || mapped;
             const tools = toolResult.active_tools || [];
-            updateTaskUI(tool, tools);
-            if (toolResult.frame_base64 || toolResult.frame) {
+            try {
+                updateTaskUI(tool, tools);
                 renderPayload(toolResult);
-            } else {
-                renderPayload(toolResult);
+            } catch (uiErr) {
+                console.error(uiErr);
+                appendLog(`[UI] render error: ${uiErr.message || uiErr}`);
             }
             connectWebSocket();
             if (input) input.value = "";
@@ -875,10 +1153,6 @@ function setLlmPromptsEnabled(enabled) {
     document.querySelectorAll(".llm-prompt").forEach((btn) => {
         btn.disabled = !enabled;
     });
-    const input = document.getElementById("gateway-prompt");
-    const btn = document.getElementById("btn-gateway-send");
-    if (input) input.disabled = !enabled;
-    if (btn) btn.disabled = !enabled;
 }
 
 async function activateFromLlmPrompt(tool, phrase) {
@@ -990,6 +1264,7 @@ window.addEventListener("beforeunload", () => {
 
 showIdleDashboard();
 setText("input-source", "idle");
+resetLiveCharts();
 fetchStatus();
 pollGatewayStatus();
 setInterval(() => {
@@ -999,3 +1274,10 @@ setInterval(pollActiveTask, 2500);
 setInterval(() => {
     if (activeTool === "idle") pollGatewayStatus();
 }, 5000);
+
+window.addEventListener("resize", () => {
+    if (activeTool !== "idle") {
+        drawLiveChart("chart-latency", latencyHistory, "#00e5ff", "ms");
+        drawLiveChart("chart-fps", fpsHistory, "#00ffa6", "");
+    }
+});

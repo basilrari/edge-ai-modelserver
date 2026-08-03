@@ -7,6 +7,7 @@ from pathlib import Path
 from core.cuda_runtime import require_cuda
 from core.perf_config import USE_TENSORRT, USE_TORCH_COMPILE, YOLO_IMGSZ, YOLO_ROBUST_IMGSZ
 from core.human_detector_tier import get_tier
+from core.flood_segmenter_tier import get_tier as get_seg_tier
 from core.flood_models import build_deeplab_segmenter, build_resnet18_classifier
 from core.runtime_profiler import RuntimeProfiler
 
@@ -14,10 +15,16 @@ CLF_ENGINE_PATH = (
     Path(__file__).resolve().parents[1]
     / "models/flood_classifier/flood_resnet18.engine"
 )
-SEG_ENGINE_PATH = (
+SEG_DIR = (
     Path(__file__).resolve().parents[1]
-    / "models/flood_segmentation/DeepLabv3_plus/flood_segmentation/flood_deeplab.engine"
+    / "models/flood_segmentation/DeepLabv3_plus/flood_segmentation"
 )
+SEG_LIGHTWEIGHT_ENGINE = SEG_DIR / "flood_deeplab.engine"
+SEG_LIGHTWEIGHT_WEIGHTS = SEG_DIR / "best_model.pth"
+SEG_ROBUST_ENGINE = SEG_DIR / "flood_deeplab_robust.engine"
+SEG_ROBUST_WEIGHTS = SEG_DIR / "best_model_robust_floodnet.pth"
+# Legacy alias
+SEG_ENGINE_PATH = SEG_LIGHTWEIGHT_ENGINE
 
 
 ROBUST_HUMAN_PT = (
@@ -67,6 +74,9 @@ class ModelManager:
         self.human_detector_key = "yolov8n"
         self.clf_backend = "pytorch"
         self.seg_backend = "pytorch"
+        self.seg_tier = "lightweight"
+        self.seg_weights_key = "best_model.pth"
+        self.seg_cache_sig: tuple | None = None
 
     def _maybe_compile(self, model, label: str):
         if not USE_TORCH_COMPILE:
@@ -108,11 +118,26 @@ class ModelManager:
     def _clf_weights_path(self) -> Path:
         return (self.base_dir / "models/flood_classifier/flood_resnet18.pth").resolve()
 
-    def _seg_weights_path(self) -> Path:
-        return (
-            self.base_dir
-            / "models/flood_segmentation/DeepLabv3_plus/flood_segmentation/best_model.pth"
-        ).resolve()
+    def _resolve_seg_paths(self, tier: str | None = None) -> tuple[Path, str]:
+        tier = tier or get_seg_tier()
+        self.seg_tier = tier
+
+        if tier == "robust":
+            self.seg_weights_key = "best_model_robust_floodnet.pth"
+            if USE_TENSORRT and SEG_ROBUST_ENGINE.exists():
+                return SEG_ROBUST_ENGINE, "tensorrt"
+            if SEG_ROBUST_WEIGHTS.exists():
+                return SEG_ROBUST_WEIGHTS, "pytorch"
+            print("[FLOOD SEG] robust weights missing; falling back to lightweight")
+
+        self.seg_tier = "lightweight"
+        self.seg_weights_key = "best_model.pth"
+        if USE_TENSORRT and SEG_LIGHTWEIGHT_ENGINE.exists():
+            return SEG_LIGHTWEIGHT_ENGINE, "tensorrt"
+        weights = SEG_LIGHTWEIGHT_WEIGHTS
+        if weights.exists():
+            return weights, "pytorch"
+        return weights, "pytorch"
 
     # =====================================================
     # PROFILE LOAD
@@ -292,36 +317,45 @@ class ModelManager:
     # FLOOD SEGMENTER
     # =====================================================
     def load_flood_segmenter(self):
+        weights_path, backend = self._resolve_seg_paths()
+        cache_sig = (self.seg_tier, weights_path.name, backend)
+        if (
+            "flood_segmenter" in self.models
+            and self.seg_cache_sig == cache_sig
+        ):
+            return self.models["flood_segmenter"]
 
-        if "flood_segmenter" not in self.models:
+        if "flood_segmenter" in self.models:
+            self.unload_model("flood_segmenter")
 
-            def _load():
-                print("Loading Flood Segmentation Model (DeepLabv3+ MobileNetV3)...")
-                engine_path = SEG_ENGINE_PATH
-                if USE_TENSORRT and engine_path.exists():
-                    from core.trt_runner import TrtFloodSegmenter
-
-                    self.seg_backend = "tensorrt"
-                    print(f"[SEGMENTER] TensorRT {engine_path.name}")
-                    return TrtFloodSegmenter(engine_path, "SEGMENTER")
-
-                weights = self._seg_weights_path()
-                if not weights.exists():
-                    raise FileNotFoundError(f"Segmentation model not found at {weights}")
-
-                model = build_deeplab_segmenter(weights, self.device)
-                self.seg_backend = "pytorch"
-                print("[SEGMENTER] PyTorch", next(model.parameters()).device)
-                return self._maybe_compile(model, "SEGMENTER")
-
-            self.models["flood_segmenter"] = (
-
-                self.profile_model_load(
-                    "flood_segmenter",
-                    _load
-                )
+        def _load():
+            print(
+                f"Loading Flood Segmentation ({self.seg_tier}) "
+                f"DeepLabv3+ MobileNetV3..."
             )
+            if backend == "tensorrt":
+                from core.trt_runner import TrtFloodSegmenter
 
+                self.seg_backend = "tensorrt"
+                print(f"[SEGMENTER] tier={self.seg_tier} TensorRT {weights_path.name}")
+                return TrtFloodSegmenter(weights_path, "SEGMENTER")
+
+            if not weights_path.exists():
+                raise FileNotFoundError(f"Segmentation model not found at {weights_path}")
+
+            model = build_deeplab_segmenter(weights_path, self.device)
+            self.seg_backend = "pytorch"
+            print(
+                f"[SEGMENTER] tier={self.seg_tier} PyTorch "
+                f"{weights_path.name} {next(model.parameters()).device}"
+            )
+            return self._maybe_compile(model, "SEGMENTER")
+
+        self.seg_cache_sig = cache_sig
+        self.models["flood_segmenter"] = self.profile_model_load(
+            "flood_segmenter",
+            _load,
+        )
         return self.models["flood_segmenter"]
 
     # =====================================================

@@ -1,0 +1,26 @@
+{
+  "dataset": "FloodNet-Supervised_v1.0",
+  "architecture": "deeplabv3_mobilenet_v3_large",
+  "num_classes": 2,
+  "input_size": 256,
+  "train_images": 1445,
+  "val_images": 450,
+  "test_images": 448,
+  "test_iou": 0.7635717966069203,
+  "test_dice": 0.8101403018538758,
+  "test_precision": 0.8540689793141871,
+  "test_recall": 0.8785247568400223,
+  "best_val_iou": 0.6742384014754655,
+  "epochs_run": 28,
+  "floodnet_classes_merged": [
+    2,
+    4,
+    6,
+    9
+  ],
+  "zero_index_masks": true,
+  "onnx": "/mnt/8tb_hdd/ayush/floodnet_robust_seg/artifacts/flood_deeplab_robust.onnx",
+  "onnx_max_diff_vs_pytorch": 4.649162292480469e-06,
+  "weights": "/mnt/8tb_hdd/ayush/floodnet_robust_seg/checkpoints/best_model_robust_floodnet.pth",
+  "note": "FloodNet has 2343 labeled images total (train 1445); <2000 train is dataset design, not a pipeline failure. Weights saved without aux_classifier for Jetson strict load."
+}

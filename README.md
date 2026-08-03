@@ -245,6 +245,23 @@ Both flood models stay in the design; switching controls **which model leads the
 
 Status severity from ratio when flooded: `WARNING` (≥0.2), `ALERT` (≥0.4), `CRITICAL` (≥0.7).
 
+### Flood segmentation — lightweight ↔ robust (dual DeepLab)
+
+**Modules:** `core/flood_seg_model_selector.py`, `core/flood_segmenter_tier.py`, `core/model_manager.py`
+
+Two DeepLabv3+ weight sets share one segmenter slot (same pattern as human YOLO tiers):
+
+| Tier | Weights | When used |
+|------|---------|-----------|
+| **lightweight** | `best_model.pth` | Dry/borderline scenes, periodic `SEG_INTERVAL` refresh, low battery/CPU |
+| **robust** | `best_model_robust_floodnet.pth` (FloodNet, test IoU 0.76) | Active flooding, high priority, low visibility, ResNet flood class |
+
+**Auto → robust** when any: `flood_ratio ≥ 0.20` · ResNet flood class · `priority ≥ 0.9` · `visibility < 0.4` · hysteresis (`robust` and ratio ≥ 0.12).
+
+**Why:** DeepLab is the expensive step. Robust every frame would cap FPS; skipping seg loses `flood_ratio` for the grid and human tier. Tiered segmentation keeps most frames fast while escalating accuracy when flooding matters.
+
+Dashboard: **Flood pipeline** panel + `POST /flood/segmenter-tier` (`lightweight` / `robust` / `mode=auto`).
+
 ### Human pipeline — lightweight ↔ robust
 
 **Modules:** `core/human_model_selector.py`, `core/human_detector_tier.py`, `tools/detect_human.py`
@@ -355,6 +372,22 @@ Key modules:
 | `tools/detect_combined.py` | Same-frame flood + human; shares `flood_ratio` |
 | `core/shared_camera.py` | Shared V4L2 camera for all tools |
 | `core/flood_grid.py` | 4×4 grid overlay + GPS localization |
+| `core/gps_locator.py` | GoPro pinhole ray cast (UavTargetLocator formula) |
+
+### GPS localization (GoPro / UavTargetLocator)
+
+Flood grid cells and human bbox feet use the **UavTargetLocator** geolocation model (pinhole ray → flat ground → local ENU → WGS84), tuned for **GoPro Linear** rather than the old fixed 45° pitch + GeographicLib direct formula.
+
+| Env | Default | Purpose |
+|-----|---------|---------|
+| `GOPRO_HFOV_DEG` | `87.0` | GoPro Linear horizontal FOV when no calibration JSON |
+| `GOPRO_INTRINSICS_JSON` | — | Path to chessboard calibration JSON (`fx/fy/cx/cy` + distortion) |
+| `GOPRO_CAPTURE_WIDTH` / `GOPRO_CAPTURE_HEIGHT` | `1920` / `1080` | Calibration resolution (intrinsics scaled to inference frame) |
+| `GIMBAL_PITCH_DEG` | `-90.0` | Nadir gimbal pitch (−90 = straight down) |
+| `GIMBAL_YAW_DEG` | `0.0` | Gimbal yaw relative to drone nose |
+| `DRONE_HEADING_DEG` | `0.0` | Drone compass heading (clockwise from north) |
+
+Human targets use the **bottom-center** of each bbox (foot contact point), matching UavTargetLocator YOLO convention.
 | `core/power_monitor.py` | tegrastats power sampling |
 | `core/gateway_client.py` | HTTP proxy to edge-ai-gateway + LLM health |
 | `core/gateway_tools.py` | Gateway tool name mapping + keyword fallback |

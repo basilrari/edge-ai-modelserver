@@ -7,17 +7,17 @@ import cv2
 import psutil
 import torch
 
-from core.flood_grid import draw_grid_overlay
+from core.flood_grid import draw_grid_overlay, serialize_grid_analysis
+from core.video_geometry import REF_ALTITUDE_M
 from core.model_manager import ModelManager
 from core.inference_engine import InferenceEngine
 from core.context_evaluator import ContextEvaluator
 from core.model_selector import FloodModelSelector
 from core.power_monitor import PowerMonitor, get_power_monitor
-from core.flood_grid import serialize_grid_analysis
-from core.video_geometry import REF_ALTITUDE_M
 from core.runtime_profiler import RuntimeProfiler
 from core.gpu_runtime import sync_all
 from core.segment_policy import should_run_segmentation
+from core.flood_segmenter_tier import resolve_tier_for_context
 from core.shared_camera import get_camera as _get_shared_camera
 
 _model_manager = None
@@ -46,6 +46,13 @@ def reset_session() -> None:
     _frame_count = 0
     _last_flood_ratio = 0.0
     _last_mask = None
+    from core.flood_segmenter_tier import reset_idle
+
+    reset_idle()
+
+
+def _get_model_manager():
+    return _components()[0]
 
 
 def get_session_context() -> dict:
@@ -130,6 +137,9 @@ def detect_flood(frame=None, encode_frame=True, sample_power=True):
             clf_model, None, frame, run_segmenter=False
         )
         clf_pred = clf_only["clf_class_index"]
+        context["clf_class_index"] = clf_pred
+        context["classification_label"] = clf_only["classification"].get("label", "unknown")
+
         run_seg = should_run_segmentation(
             _frame_count,
             clf_pred,
@@ -137,12 +147,22 @@ def detect_flood(frame=None, encode_frame=True, sample_power=True):
             pre["run_segmenter"],
         ) or _frame_count <= 1
 
+        seg_tier_info = None
         seg_model = None
         if run_seg:
+            seg_tier_info = resolve_tier_for_context(context)
+            tier_sw = seg_tier_info.get("tier_switches") or {}
+            if tier_sw.get("tier"):
+                switches["seg_tier"] = tier_sw["tier"]
             t1 = time.perf_counter()
             seg_model = model_manager.load_flood_segmenter()
             if _seg_load_ms == 0.0:
                 _seg_load_ms = (time.perf_counter() - t1) * 1000.0
+        else:
+            from core.flood_segmenter_tier import begin_inference, get_status, get_tier, tier_metadata
+
+            begin_inference()
+            seg_tier_info = {**get_status(), **tier_metadata(get_tier())}
 
         if run_seg and seg_model is not None:
             seg_out = engine.run_segmentation(seg_model, frame)
@@ -212,10 +232,11 @@ def detect_flood(frame=None, encode_frame=True, sample_power=True):
         out_frame = frame
         show_grid = seg_active and mask is not None
         if show_grid:
+            altitude_m = float(context.get("altitude", REF_ALTITUDE_M))
             out_frame, grid_analysis = draw_grid_overlay(
                 frame,
                 mask,
-                drone_altitude_m=REF_ALTITUDE_M,
+                drone_altitude_m=altitude_m,
             )
 
         result_frame = out_frame
@@ -226,10 +247,11 @@ def detect_flood(frame=None, encode_frame=True, sample_power=True):
 
         active = {
             "classifier": _display_name(FloodModelSelector.RESNET18),
-            "segmenter": _display_name(FloodModelSelector.DEEPLAB),
+            "segmenter": seg_tier_info["segmenter_label"] if seg_tier_info else _display_name(FloodModelSelector.DEEPLAB),
             "primary": _display_name(primary),
             "classifier_key": FloodModelSelector.RESNET18,
-            "segmenter_key": FloodModelSelector.DEEPLAB,
+            "segmenter_key": seg_tier_info["segmenter_key"] if seg_tier_info else FloodModelSelector.DEEPLAB,
+            "segmenter_tier": getattr(model_manager, "seg_tier", "lightweight"),
             "primary_key": primary,
             "classifier_backend": getattr(model_manager, "clf_backend", "pytorch"),
             "segmenter_backend": getattr(model_manager, "seg_backend", "pytorch"),
@@ -245,7 +267,8 @@ def detect_flood(frame=None, encode_frame=True, sample_power=True):
         log = (
             f"[{time.strftime('%H:%M:%S')}] cam={camera_device} "
             f"class={display_label} (raw={raw_classification}) ratio={flood_ratio:.2f} "
-            f"primary={active['primary']} seg_active={seg_active} status={status} grid={show_grid}"
+            f"primary={active['primary']} seg={active.get('segmenter_tier', '—')} "
+            f"seg_active={seg_active} status={status} grid={show_grid}"
         )
         if switch_log:
             log += " | SWITCH " + "; ".join(switch_log)
@@ -259,6 +282,7 @@ def detect_flood(frame=None, encode_frame=True, sample_power=True):
             "classification_ms": round(classification_ms, 2),
             "segmentation_ms": round(segmentation_ms, 2),
             "segmentation_skipped": flood_run.get("segmentation_skipped", not run_seg),
+            "segmenter_tier": getattr(model_manager, "seg_tier", None),
             "model_switch_latency_ms": round(total_inference_ms, 2),
             "memory_mb": round(memory_mb, 2),
             "cpu_percent": round(cpu_percent, 2),
@@ -296,6 +320,7 @@ def detect_flood(frame=None, encode_frame=True, sample_power=True):
             "active_models": active,
             "model_switches": switches,
             "selection_metadata": post.get("metadata", {}),
+            "flood_segmenter": seg_tier_info,
             "camera": {"device": camera_device},
             "system": {
                 "status": status,

@@ -145,8 +145,13 @@ def run_human_inference(frame, conf_min=0.4, context_extra: dict | None = None):
     sync_all()
 
     infer_ms = (time.perf_counter() - total_start) * 1000.0
+    h, w = frame.shape[:2]
+    altitude_m = float(context.get("altitude", 50.0))
     humans = attach_gps_to_humans(
-        _parse_humans(results[0], manager.human_class_ids, conf_min=conf_min)
+        _parse_humans(results[0], manager.human_class_ids, conf_min=conf_min),
+        frame_width=w,
+        frame_height=h,
+        drone_altitude_m=altitude_m,
     )
     return (
         humans,

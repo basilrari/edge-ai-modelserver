@@ -5,6 +5,7 @@ from tools.detect_flood import detect_flood
 from tools.detect_human import detect_human
 
 from core.human_detector_tier import get_status as human_detector_status
+from core.flood_segmenter_tier import get_status as flood_segmenter_status
 
 VALID_TOOLS = frozenset({"detect_flood", "detect_human"})
 TOOL_ALIASES = {
@@ -105,6 +106,7 @@ class TaskSession:
             "active_tools": sorted(cls._active_tools),
             "inference_enabled": bool(cls._active_tools),
             "human_detector": human_detector_status(),
+            "flood_segmenter": flood_segmenter_status(),
         }
 
     @classmethod

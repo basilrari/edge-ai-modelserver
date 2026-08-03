@@ -1,27 +1,14 @@
-"""4x4 flood grid localization (same logic as deeplab_inference.analyze_grid)."""
+"""4x4 flood grid localization + human GPS via UavTargetLocator geolocation."""
 
 from __future__ import annotations
 
 import numpy as np
 
+from core.gps_locator import DEFAULT_HEADING_DEG, GimbalOrientation, estimate_pixel_gps
 from core.video_geometry import REF_ALTITUDE_M
-
-try:
-    from geographiclib.geodesic import Geodesic
-
-    _GEOD = Geodesic.WGS84
-except ImportError:
-    _GEOD = None
 
 # Simulated drone position when Pixhawk GPS is unavailable (Chittur, Kerala demo area).
 FAKE_DRONE_REF_GPS = (10.7014, 76.3660)
-
-# Camera intrinsics (640x480) from deeplab_inference.py
-_FX, _FY = 277.19, 277.19
-_CX, _CY = 160.5, 120.5
-_K_INV = np.linalg.inv(
-    np.array([[_FX, 0, _CX], [0, _FY, _CY], [0, 0, 1]], dtype=np.float64)
-)
 
 
 def analyze_grid(
@@ -31,6 +18,8 @@ def analyze_grid(
     *,
     drone_altitude_m: float = REF_ALTITUDE_M,
     ref_gps: tuple[float, float] = FAKE_DRONE_REF_GPS,
+    heading_deg: float = DEFAULT_HEADING_DEG,
+    gimbal: GimbalOrientation | None = None,
 ):
     h, w = mask.shape[:2]
     cell_h, cell_w = h // grid_size, w // grid_size
@@ -53,7 +42,7 @@ def analyze_grid(
         cell_ratios.append(row)
 
     if best_cell is None or max_ratio < min_ratio:
-        return _empty_grid_result(max_ratio, cell_ratios)
+        return _empty_grid_result(max_ratio, cell_ratios, drone_altitude_m=drone_altitude_m)
 
     x1, y1, x2, y2, row, col = best_cell
     cx = (x1 + x2) // 2
@@ -62,8 +51,12 @@ def analyze_grid(
 
     geo = _estimate_gps(
         centroid,
+        frame_width=w,
+        frame_height=h,
         drone_altitude_m=drone_altitude_m,
         ref_gps=ref_gps,
+        heading_deg=heading_deg,
+        gimbal=gimbal,
     )
 
     return {
@@ -75,14 +68,19 @@ def analyze_grid(
         "ref_longitude": geo["ref_longitude"] if geo else ref_gps[1],
         "altitude_m": drone_altitude_m,
         "simulated": True,
-        "gps_source": "fake_drone_ref",
+        "gps_source": geo.get("gps_source", "uav_target_locator_gopro") if geo else "uav_target_locator_gopro",
         "max_cell_ratio": round(max_ratio, 4),
         "best_cell": {"row": row, "col": col},
         "cell_ratios": cell_ratios,
     }
 
 
-def _empty_grid_result(max_ratio: float, cell_ratios: list) -> dict:
+def _empty_grid_result(
+    max_ratio: float,
+    cell_ratios: list,
+    *,
+    drone_altitude_m: float = REF_ALTITUDE_M,
+) -> dict:
     return {
         "centroid": None,
         "gps_text": None,
@@ -90,9 +88,9 @@ def _empty_grid_result(max_ratio: float, cell_ratios: list) -> dict:
         "longitude": None,
         "ref_latitude": FAKE_DRONE_REF_GPS[0],
         "ref_longitude": FAKE_DRONE_REF_GPS[1],
-        "altitude_m": REF_ALTITUDE_M,
+        "altitude_m": drone_altitude_m,
         "simulated": True,
-        "gps_source": "fake_drone_ref",
+        "gps_source": "uav_target_locator_gopro",
         "max_cell_ratio": round(max_ratio, 4),
         "best_cell": None,
         "cell_ratios": cell_ratios,
@@ -103,42 +101,59 @@ def estimate_gps_from_pixel(
     cx: int,
     cy: int,
     *,
+    frame_width: int,
+    frame_height: int,
     drone_altitude_m: float = REF_ALTITUDE_M,
     ref_gps: tuple[float, float] = FAKE_DRONE_REF_GPS,
+    heading_deg: float = DEFAULT_HEADING_DEG,
+    gimbal: GimbalOrientation | None = None,
 ) -> dict | None:
-    """Project image pixel (centroid) to ground GPS using simulated drone ref."""
+    """Project image pixel to ground GPS (UavTargetLocator / GoPro model)."""
     return _estimate_gps(
         (int(cx), int(cy)),
+        frame_width=frame_width,
+        frame_height=frame_height,
         drone_altitude_m=drone_altitude_m,
         ref_gps=ref_gps,
+        heading_deg=heading_deg,
+        gimbal=gimbal,
     )
 
 
 def attach_gps_to_humans(
     humans: list[dict],
     *,
+    frame_width: int,
+    frame_height: int,
     drone_altitude_m: float = REF_ALTITUDE_M,
     ref_gps: tuple[float, float] = FAKE_DRONE_REF_GPS,
+    heading_deg: float = DEFAULT_HEADING_DEG,
+    gimbal: GimbalOrientation | None = None,
 ) -> list[dict]:
-    """Add centroid + simulated GPS for each human bounding box."""
+    """Add simulated GPS for each human bbox (bottom-center foot point)."""
     localized: list[dict] = []
     for idx, human in enumerate(humans):
         entry = dict(human)
         x1, y1, x2, y2 = entry["bbox"]
-        cx = int((x1 + x2) // 2)
-        cy = int((y1 + y2) // 2)
-        entry["centroid"] = [cx, cy]
+        u_px = (x1 + x2) / 2.0
+        v_px = float(y2)
+        entry["centroid"] = [int(round(u_px)), int(round(v_px))]
         entry["human_index"] = idx + 1
         entry["simulated"] = True
-        entry["gps_source"] = "fake_drone_ref"
+        entry["gps_source"] = "uav_target_locator_gopro"
         entry["ref_latitude"] = ref_gps[0]
         entry["ref_longitude"] = ref_gps[1]
         entry["altitude_m"] = drone_altitude_m
-        geo = estimate_gps_from_pixel(
-            cx,
-            cy,
+        geo = estimate_pixel_gps(
+            u_px,
+            v_px,
+            frame_width=frame_width,
+            frame_height=frame_height,
+            drone_lat=ref_gps[0],
+            drone_lon=ref_gps[1],
             drone_altitude_m=drone_altitude_m,
-            ref_gps=ref_gps,
+            heading_deg=heading_deg,
+            gimbal=gimbal,
         )
         if geo:
             entry["latitude"] = geo["latitude"]
@@ -155,48 +170,25 @@ def attach_gps_to_humans(
 def _estimate_gps(
     centroid,
     *,
+    frame_width: int,
+    frame_height: int,
     drone_altitude_m: float,
     ref_gps: tuple[float, float],
+    heading_deg: float = DEFAULT_HEADING_DEG,
+    gimbal: GimbalOrientation | None = None,
 ) -> dict | None:
-    if _GEOD is None:
-        return None
-
     cx, cy = centroid
-    pixel = np.array([cx, cy, 1.0], dtype=np.float64)
-    ray_cam = _K_INV @ pixel
-    ray_cam /= np.linalg.norm(ray_cam)
-
-    theta = np.deg2rad(45.0)
-    r_pitch = np.array(
-        [
-            [np.cos(theta), 0, np.sin(theta)],
-            [0, 1, 0],
-            [-np.sin(theta), 0, np.cos(theta)],
-        ],
-        dtype=np.float64,
+    return estimate_pixel_gps(
+        float(cx),
+        float(cy),
+        frame_width=frame_width,
+        frame_height=frame_height,
+        drone_lat=ref_gps[0],
+        drone_lon=ref_gps[1],
+        drone_altitude_m=drone_altitude_m,
+        heading_deg=heading_deg,
+        gimbal=gimbal,
     )
-    ray_world = r_pitch @ ray_cam
-    ray_world /= ray_world[2]
-    scale = -drone_altitude_m / ray_world[2]
-    ground_point = scale * ray_world
-    dx, dy = ground_point[0], -ground_point[2]
-
-    lat, lon = ref_gps
-    distance = float(np.sqrt(dx**2 + dy**2))
-    azimuth = float(np.rad2deg(np.arctan2(dx, dy)))
-    new_point = _GEOD.Direct(lat, lon, azimuth, distance)
-    lat2 = round(float(new_point["lat2"]), 6)
-    lon2 = round(float(new_point["lon2"]), 6)
-    return {
-        "latitude": lat2,
-        "longitude": lon2,
-        "ref_latitude": ref_gps[0],
-        "ref_longitude": ref_gps[1],
-        "altitude_m": drone_altitude_m,
-        "simulated": True,
-        "gps_source": "fake_drone_ref",
-        "gps_text": f"GPS: {lat2:.6f}, {lon2:.6f}",
-    }
 
 
 def serialize_grid_analysis(analysis: dict | None) -> dict | None:
@@ -219,6 +211,8 @@ def draw_grid_overlay(
     *,
     drone_altitude_m: float = REF_ALTITUDE_M,
     ref_gps: tuple[float, float] = FAKE_DRONE_REF_GPS,
+    heading_deg: float = DEFAULT_HEADING_DEG,
+    gimbal: GimbalOrientation | None = None,
 ):
     import cv2
 
@@ -233,6 +227,8 @@ def draw_grid_overlay(
         min_ratio=min_ratio,
         drone_altitude_m=drone_altitude_m,
         ref_gps=ref_gps,
+        heading_deg=heading_deg,
+        gimbal=gimbal,
     )
 
     color_mask = np.zeros_like(frame_bgr)

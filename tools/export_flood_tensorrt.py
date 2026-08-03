@@ -33,10 +33,20 @@ SEG_WEIGHTS = (
     ROOT
     / "models/flood_segmentation/DeepLabv3_plus/flood_segmentation/best_model.pth"
 )
+SEG_ROBUST_WEIGHTS = (
+    ROOT
+    / "models/flood_segmentation/DeepLabv3_plus/flood_segmentation/best_model_robust_floodnet.pth"
+)
 CLF_ONNX = ROOT / "models/flood_classifier/flood_resnet18.onnx"
 SEG_ONNX = ROOT / "models/flood_segmentation/DeepLabv3_plus/flood_segmentation/flood_deeplab.onnx"
+SEG_ROBUST_ONNX = (
+    ROOT / "models/flood_segmentation/DeepLabv3_plus/flood_segmentation/flood_deeplab_robust.onnx"
+)
 CLF_ENGINE = ROOT / "models/flood_classifier/flood_resnet18.engine"
 SEG_ENGINE = ROOT / "models/flood_segmentation/DeepLabv3_plus/flood_segmentation/flood_deeplab.engine"
+SEG_ROBUST_ENGINE = (
+    ROOT / "models/flood_segmentation/DeepLabv3_plus/flood_segmentation/flood_deeplab_robust.engine"
+)
 
 
 def _export_onnx_engine(
@@ -93,27 +103,49 @@ def export_classifier(device: torch.device) -> Path:
     )
 
 
-def export_segmenter(device: torch.device) -> Path:
-    if not SEG_WEIGHTS.exists():
-        raise FileNotFoundError(SEG_WEIGHTS)
+def export_segmenter(device: torch.device, *, robust: bool = False) -> Path:
+    weights = SEG_ROBUST_WEIGHTS if robust else SEG_WEIGHTS
+    onnx_path = SEG_ROBUST_ONNX if robust else SEG_ONNX
+    engine_path = SEG_ROBUST_ENGINE if robust else SEG_ENGINE
+    label = "robust FloodNet" if robust else "lightweight"
 
-    core = build_deeplab_segmenter(SEG_WEIGHTS, device)
+    if not weights.exists():
+        raise FileNotFoundError(weights)
+
+    core = build_deeplab_segmenter(weights, device)
     model = DeepLabExportWrapper(core).eval()
     dummy = torch.randn(1, 3, SEG_SIZE, SEG_SIZE, device=device)
     with torch.inference_mode():
         model(dummy)
 
+    print(f"[EXPORT] segmenter ({label}) weights={weights.name}")
     return _export_onnx_engine(
         model,
         dummy,
-        SEG_ONNX,
-        SEG_ENGINE,
+        onnx_path,
+        engine_path,
         input_name="images",
         output_name="logits",
     )
 
 
 def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Export flood classifier/segmenter to TensorRT")
+    parser.add_argument(
+        "--segmenter",
+        choices=("lightweight", "robust", "both"),
+        default="both",
+        help="Which segmenter engine(s) to build (default: both)",
+    )
+    parser.add_argument(
+        "--classifier-only",
+        action="store_true",
+        help="Export classifier only",
+    )
+    args = parser.parse_args()
+
     ensure_export_deps()
 
     if not torch.cuda.is_available():
@@ -124,11 +156,18 @@ def main() -> None:
     print(f"[EXPORT] Device: {torch.cuda.get_device_name(0)}")
 
     export_classifier(device)
-    export_segmenter(device)
+    if not args.classifier_only:
+        if args.segmenter in ("lightweight", "both"):
+            export_segmenter(device, robust=False)
+        if args.segmenter in ("robust", "both"):
+            export_segmenter(device, robust=True)
 
     print("[EXPORT] Flood engines ready:")
     print(f"  {CLF_ENGINE}")
-    print(f"  {SEG_ENGINE}")
+    if args.segmenter in ("lightweight", "both") and not args.classifier_only:
+        print(f"  {SEG_ENGINE}")
+    if args.segmenter in ("robust", "both") and not args.classifier_only:
+        print(f"  {SEG_ROBUST_ENGINE}")
     print("[EXPORT] Restart server — USE_TENSORRT=1 loads .engine files automatically")
 
 

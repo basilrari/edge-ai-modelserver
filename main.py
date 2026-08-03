@@ -79,6 +79,38 @@ def set_human_detector_tier(request: dict):
     return {**TaskSession.get_status(), **result}
 
 
+@app.get("/flood/segmenter")
+def flood_segmenter_info():
+    from core.flood_segmenter_tier import get_status as flood_segmenter_status
+
+    return flood_segmenter_status()
+
+
+@app.post("/flood/segmenter-tier")
+def set_flood_segmenter_tier(request: dict):
+    from core.flood_segmenter_tier import set_force_tier, set_tier
+
+    mode = (request.get("mode") or "").strip().lower()
+    if mode == "auto":
+        result = set_force_tier(None)
+        return {**TaskSession.get_status(), **result}
+
+    tier = request.get("tier") or request.get("force_tier")
+    if not tier:
+        return {
+            "error": "tier required (lightweight/robust) or mode=auto",
+            **TaskSession.get_status(),
+        }
+    try:
+        if request.get("force", True):
+            result = set_force_tier(tier)
+        else:
+            result = set_tier(tier)
+    except ValueError as exc:
+        return {"error": str(exc), **TaskSession.get_status()}
+    return {**TaskSession.get_status(), **result}
+
+
 @app.post("/tool")
 def execute_tool(request: dict):
     return run_tool(request)
@@ -126,27 +158,39 @@ def gateway_infer(request: dict):
     prompt = (request.get("prompt") or "").strip()
     if not prompt:
         return {"error": "prompt required", "gateway_url": gateway_base_url()}
+
     outcome = infer_prompt(prompt)
-    if outcome.get("gateway_reachable") is False:
-        return {
-            **outcome,
-            "plan": None,
-            "llm_reachable": llm_reachable(),
-            "llm_url": llm_base_url(),
-        }
-    plan = infer_plan_summary(outcome)
-    mapped = plan.get("model_server_tool")
+    gateway_down = outcome.get("gateway_reachable") is False
+    plan = None
+    mapped = None
     fallback_used = False
-    if not mapped and is_llm_infer_failure(outcome):
+
+    if gateway_down:
         mapped = local_prompt_to_tool(prompt)
         if mapped:
             fallback_used = True
             plan = {
-                **plan,
                 "model_server_tool": mapped,
                 "fallback": "local_keywords",
-                "llm_offline": True,
+                "gateway_unreachable": True,
+                "gateway_model_tools": [],
+                "drone_steps": [],
+                "is_none": False,
             }
+    else:
+        plan = infer_plan_summary(outcome)
+        mapped = plan.get("model_server_tool")
+        if not mapped and is_llm_infer_failure(outcome):
+            mapped = local_prompt_to_tool(prompt)
+            if mapped:
+                fallback_used = True
+                plan = {
+                    **plan,
+                    "model_server_tool": mapped,
+                    "fallback": "local_keywords",
+                    "llm_offline": True,
+                }
+
     tool_result = None
     if mapped and request.get("activate", True):
         if mapped == "detect_combined":
@@ -158,17 +202,19 @@ def gateway_infer(request: dict):
             infer = TaskSession.run_active()
             if infer and not infer.get("skipped"):
                 tool_result.update(infer)
+
     return {
         "gateway_url": gateway_base_url(),
         "llm_url": llm_base_url(),
         "llm_reachable": llm_reachable(),
         "prompt": prompt,
-        "gateway": outcome,
+        "gateway": outcome if not gateway_down else None,
         "plan": plan,
         "model_server_tool": mapped,
         "fallback_used": fallback_used,
         "activated": mapped is not None and tool_result is not None and not tool_result.get("error"),
         "tool_result": tool_result,
+        **({"error": outcome.get("error"), "gateway_reachable": False} if gateway_down else {}),
     }
 
 
