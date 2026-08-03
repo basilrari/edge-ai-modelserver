@@ -7,7 +7,7 @@ The server starts **idle** and only runs inference when an external LLM (or you 
 ## Features
 
 - **LLM tool activation** — `detect_flood`, `detect_human`, or both at once
-- **Adaptive flood pipeline** — ResNet18 classifier + DeepLabv3+ segmenter with context-aware model switching
+- **Adaptive flood pipeline** — ResNet18 classifier + dual-tier DeepLabv3+ (lightweight / FloodNet robust) with smart segmentation gating
 - **Flood threshold** — `Flooded` status and 4×4 grid overlay when flood ratio ≥ 0.2
 - **Human detection — dual tier** — **YOLOv8n** (lightweight patrol) or **YOLO11s VisDrone** (robust aerial small-human) with automatic context-aware switching
 - **Combined mode** — one camera frame → flood grid + human boxes (e.g. person stuck in flood); flood ratio feeds human tier selection
@@ -41,7 +41,10 @@ Pre-built artifacts in repo (PyTorch + ONNX + TensorRT):
 | YOLOv8n (lightweight human) | `yolov8n.pt` | `yolov8n.onnx` | `yolov8n.engine` |
 | YOLO11s VisDrone (robust human) | `models/human_detector/yolo11s_visdrone_human_1280.pt` | same dir `.onnx` | same dir `.engine` |
 | ResNet18 flood classifier | `models/flood_classifier/flood_resnet18.pth` | `.onnx` | `.engine` |
-| DeepLabv3+ flood segmenter | `models/flood_segmentation/.../best_model.pth` | `flood_deeplab.onnx` | `flood_deeplab.engine` |
+| DeepLabv3+ flood seg (lightweight) | `.../flood_segmentation/best_model.pth` | `flood_deeplab.onnx` | `flood_deeplab.engine` |
+| DeepLabv3+ flood seg (robust, FloodNet) | `.../best_model_robust_floodnet.pth` | `flood_deeplab_robust.onnx` | `flood_deeplab_robust.engine` |
+
+Flood segmenter paths: `models/flood_segmentation/DeepLabv3_plus/flood_segmentation/`. Context-aware tier selection picks lightweight vs robust at runtime (same pattern as human YOLO).
 
 # Optional env toggles (defaults shown)
 export PARALLEL_COMBINED=1    # overlap flood + human GPU work
@@ -405,8 +408,11 @@ All deployed inference weights are **committed to this repository** (PyTorch che
 | Lightweight human (YOLOv8n) | `yolov8n.pt` | `yolov8n.onnx` | `yolov8n.engine` |
 | Robust human (YOLO11s VisDrone @ 1280) | `models/human_detector/yolo11s_visdrone_human_1280.pt` | `.../yolo11s_visdrone_human_1280.onnx` | `.../yolo11s_visdrone_human_1280.engine` |
 | Flood classifier (ResNet18) | `models/flood_classifier/flood_resnet18.pth` | `flood_resnet18.onnx` | `flood_resnet18.engine` |
-| Flood segmenter (DeepLabv3+) | `models/flood_segmentation/DeepLabv3_plus/flood_segmentation/best_model.pth` | `flood_deeplab.onnx` | `flood_deeplab.engine` |
+| Flood segmenter — lightweight (DeepLabv3+) | `.../flood_segmentation/best_model.pth` | `flood_deeplab.onnx` | `flood_deeplab.engine` |
+| Flood segmenter — robust (FloodNet) | `.../best_model_robust_floodnet.pth` | `flood_deeplab_robust.onnx` | `flood_deeplab_robust.engine` |
 | Legacy U-Net | `models/flood_segmentation/U-Net/unet_model.pth` | — | — |
+
+`.../` = `models/flood_segmentation/DeepLabv3_plus/flood_segmentation/`
 
 `ModelManager` prefers `.engine` when `USE_TENSORRT=1` and the file exists; otherwise it loads `.pt` / `.pth`.
 
