@@ -1,5 +1,7 @@
+import faulthandler
 import os
 
+faulthandler.enable()  # print thread stacks on SIGSEGV (native crash diagnostics)
 os.environ.setdefault("OPENCV_LOG_LEVEL", "SILENT")
 
 from typing import Literal
@@ -55,6 +57,23 @@ def camera_status_api():
     from core.webrtc_live import camera_status
 
     return camera_status()
+
+
+@app.get("/camera/snapshot")
+def camera_snapshot():
+    """Latest raw camera frame as JPEG — isolates capture from the WebRTC path."""
+    import cv2
+    from fastapi.responses import Response
+
+    from core.shared_camera import get_frame
+
+    frame = get_frame()
+    if frame is None:
+        raise HTTPException(status_code=503, detail="no camera frame available")
+    ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    if not ok:
+        raise HTTPException(status_code=500, detail="JPEG encode failed")
+    return Response(content=buf.tobytes(), media_type="image/jpeg")
 
 
 @app.post("/camera/webrtc/offer")

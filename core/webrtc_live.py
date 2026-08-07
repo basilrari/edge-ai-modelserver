@@ -14,14 +14,42 @@ from aiortc import (
     RTCSessionDescription,
     VideoStreamTrack,
 )
-from aiortc.contrib.media import MediaRelay
 from av import VideoFrame
 
 logger = logging.getLogger("drone_llm.webrtc")
 
-relay = MediaRelay()
+
+def _tune_encoder_bitrates() -> None:
+    """Raise aiortc's built-in encoder bitrate caps (defaults are 0.5-1.5 Mbps VP8,
+    which looks grainy at 720p). Constants are read at clamp time, so patching the
+    module values before any peer connection is created takes effect everywhere."""
+    min_bps = int(os.environ.get("WEBRTC_MIN_BITRATE", "1000000"))
+    default_bps = int(os.environ.get("WEBRTC_DEFAULT_BITRATE", "3000000"))
+    max_bps = int(os.environ.get("WEBRTC_MAX_BITRATE", "6000000"))
+    try:
+        import aiortc.codecs.vpx as vpx
+
+        vpx.MIN_BITRATE = min_bps
+        vpx.DEFAULT_BITRATE = default_bps
+        vpx.MAX_BITRATE = max_bps
+    except ImportError:
+        pass
+    try:
+        import aiortc.codecs.h264 as h264
+
+        h264.MIN_BITRATE = min_bps
+        h264.DEFAULT_BITRATE = default_bps
+        h264.MAX_BITRATE = max_bps
+    except ImportError:
+        pass
+    logger.info(
+        "WebRTC encoder bitrates: min=%d default=%d max=%d", min_bps, default_bps, max_bps
+    )
+
+
+_tune_encoder_bitrates()
+
 _pcs: set[RTCPeerConnection] = set()
-_shared_track: "SharedCameraVideoTrack | None" = None
 
 
 from core.webrtc_ice import ice_servers_for_peer
@@ -37,12 +65,35 @@ def warmup_camera() -> None:
 
 
 class SharedCameraVideoTrack(VideoStreamTrack):
+    """Per-peer track. Each peer gets its own instance and its own frame copies:
+    sharing one native av.VideoFrame across encoder threads (MediaRelay fan-out)
+    segfaults in libvpx/PyAV. The camera itself is shared and thread-safe."""
+
     kind = "video"
 
     def __init__(self) -> None:
         super().__init__()
-        self._target_fps = max(1.0, float(os.environ.get("CAMERA_FPS", "12")))
-        self._max_width = max(320, int(os.environ.get("WEBRTC_MAX_WIDTH", "960")))
+        self._target_fps = max(1.0, float(os.environ.get("CAMERA_FPS", "15")))
+        self._max_width = max(320, int(os.environ.get("WEBRTC_MAX_WIDTH", "1280")))
+        # Latched on first real frame; keeps output resolution constant for the
+        # whole track lifetime (mid-stream size changes force encoder re-init).
+        self._out_size: tuple[int, int] | None = None
+        self._last_frame: np.ndarray | None = None
+
+    def _fit(self, frame_bgr: np.ndarray) -> np.ndarray:
+        if self._out_size is None:
+            h, w = frame_bgr.shape[:2]
+            if w > self._max_width:
+                out_w = self._max_width
+                out_h = max(2, int(h * self._max_width / w) // 2 * 2)
+            else:
+                out_w = w // 2 * 2
+                out_h = h // 2 * 2
+            self._out_size = (out_w, out_h)
+        out_w, out_h = self._out_size
+        if frame_bgr.shape[1] != out_w or frame_bgr.shape[0] != out_h:
+            frame_bgr = cv2.resize(frame_bgr, (out_w, out_h), interpolation=cv2.INTER_AREA)
+        return np.ascontiguousarray(frame_bgr)
 
     async def recv(self) -> VideoFrame:
         from core.shared_camera import get_camera
@@ -50,32 +101,27 @@ class SharedCameraVideoTrack(VideoStreamTrack):
         pts, time_base = await self.next_timestamp()
         frame_bgr = await asyncio.to_thread(get_camera().get_frame)
         wait = 0
-        while frame_bgr is None and wait < 50:
+        while frame_bgr is None and self._last_frame is None and wait < 50:
             await asyncio.sleep(0.02)
             wait += 1
             frame_bgr = await asyncio.to_thread(get_camera().get_frame)
-        if frame_bgr is None:
-            frame_bgr = np.zeros((480, 640, 3), dtype=np.uint8)
 
-        h, w = frame_bgr.shape[:2]
-        if w > self._max_width:
-            nh = max(1, int(h * self._max_width / w))
-            frame_bgr = cv2.resize(
-                frame_bgr, (self._max_width, nh), interpolation=cv2.INTER_AREA
-            )
+        if frame_bgr is not None:
+            frame_bgr = self._fit(frame_bgr)
+            self._last_frame = frame_bgr
+        elif self._last_frame is not None:
+            # Brief camera hiccup: repeat last frame instead of switching to a
+            # differently-sized placeholder.
+            frame_bgr = self._last_frame
+        else:
+            out_w, out_h = self._out_size or (self._max_width, self._max_width * 9 // 16)
+            frame_bgr = np.zeros((out_h, out_w, 3), dtype=np.uint8)
 
         video = VideoFrame.from_ndarray(frame_bgr, format="bgr24")
         video.pts = pts
         video.time_base = time_base
         await asyncio.sleep(max(0.0, (1.0 / self._target_fps) * 0.85))
         return video
-
-
-def ensure_track() -> SharedCameraVideoTrack:
-    global _shared_track
-    if _shared_track is None:
-        _shared_track = SharedCameraVideoTrack()
-    return _shared_track
 
 
 async def close_all_peers() -> None:
@@ -86,8 +132,10 @@ async def close_all_peers() -> None:
 
 
 async def handle_offer(sdp: str, offer_type: str) -> dict[str, str]:
-    # Stale peers after a crash/reconnect can destabilize aiortc on Jetson.
-    if len(_pcs) >= 2:
+    # Cap concurrent viewers; a browser reconnect leaves a zombie peer behind,
+    # and each peer runs its own encoder (CPU-bound on Jetson).
+    max_peers = int(os.environ.get("WEBRTC_MAX_PEERS", "2"))
+    if len(_pcs) >= max_peers:
         await close_all_peers()
 
     offer = RTCSessionDescription(sdp=sdp, type=offer_type)
@@ -101,7 +149,8 @@ async def handle_offer(sdp: str, offer_type: str) -> dict[str, str]:
             await pc.close()
             _pcs.discard(pc)
 
-    pc.addTrack(relay.subscribe(ensure_track()))
+    # Per-peer track: no shared native frame objects between encoder threads.
+    pc.addTrack(SharedCameraVideoTrack())
 
     await pc.setRemoteDescription(offer)
     answer = await pc.createAnswer()
@@ -132,8 +181,15 @@ def camera_status() -> dict:
 
         cam = get_camera()
         frame = cam.get_frame()
+        age = None
+        age_fn = getattr(cam, "frame_age_sec", None)
+        if callable(age_fn):
+            age = age_fn()
+        stale = age is not None and age > 5.0
         return {
-            "connected": frame is not None,
+            "connected": frame is not None and not stale,
+            "stale": stale,
+            "frame_age_sec": round(age, 2) if age is not None else None,
             "device": getattr(cam, "device_path", None),
             "width": getattr(cam, "width", None),
             "height": getattr(cam, "height", None),
