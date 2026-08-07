@@ -2,7 +2,9 @@ import os
 
 os.environ.setdefault("OPENCV_LOG_LEVEL", "SILENT")
 
-from fastapi import FastAPI, File, Request, UploadFile, WebSocket, WebSocketDisconnect
+from typing import Literal
+
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -30,6 +32,12 @@ from core.perf_config import WS_MIN_INTERVAL
 from core.task_session import TaskSession
 from core.tool_mapping import normalize_tool
 from router import run_tool
+from pydantic import BaseModel
+
+
+class WebRtcOffer(BaseModel):
+    sdp: str
+    type: Literal["offer"] = "offer"
 
 app = FastAPI()
 
@@ -40,6 +48,23 @@ templates = Jinja2Templates(directory="templates")
 @app.get("/health")
 def health():
     return {"status": "model server running", **TaskSession.get_status()}
+
+
+@app.get("/camera/status")
+def camera_status_api():
+    from core.webrtc_live import camera_status
+
+    return camera_status()
+
+
+@app.post("/camera/webrtc/offer")
+async def camera_webrtc_offer(body: WebRtcOffer):
+    from core.webrtc_live import handle_offer
+
+    try:
+        return await handle_offer(body.sdp, body.type)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
 
 
 @app.get("/status")
@@ -303,7 +328,33 @@ def startup_event():
     print("[SYSTEM] Model server ready (idle — awaiting LLM tool command)")
     print("[SYSTEM] Tools: detect_flood | detect_human | both | idle/stop")
     print(f"[SYSTEM] Gateway proxy: {gateway_base_url()} (GATEWAY_URL to override)")
+    print("[SYSTEM] WebRTC live view: POST /camera/webrtc/offer (SAR frontend /camera)")
     print("[SYSTEM] Perf: PARALLEL_COMBINED ASYNC_POWER USE_TENSORRT (see core/perf_config.py)")
+    try:
+        from core.gopro_preview import start_gopro_preview_if_needed
+
+        start_gopro_preview_if_needed()
+    except Exception as e:
+        print(f"[CAMERA] GoPro preview failed: {e}")
+    if os.environ.get("WEBRTC_WARMUP", "1") == "1":
+        try:
+            from core.webrtc_live import warmup_camera
+
+            warmup_camera()
+            print("[WEBRTC] Camera warmup OK")
+        except Exception as e:
+            print(f"[WEBRTC] Camera warmup skipped: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event_async():
+    from core.gopro_preview import stop_gopro_preview_if_started
+    from core.webrtc_live import close_all_peers
+
+    await close_all_peers()
+    stop_gopro_preview_if_started()
+    TaskSession.deactivate()
+    print("[SYSTEM] Model server stopped")
 
 
 @app.websocket("/ws/live")
@@ -349,9 +400,3 @@ async def live_stream(websocket: WebSocket):
         print("[WS] Client disconnected")
     except Exception as e:
         print("[WS ERROR]", e)
-
-
-@app.on_event("shutdown")
-def shutdown_event():
-    TaskSession.deactivate()
-    print("[SYSTEM] Model server stopped")
