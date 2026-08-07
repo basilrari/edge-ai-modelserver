@@ -41,6 +41,13 @@ class GoproCameraStream:
             frame, seq, _ = self._vs.latest_frame()
         return frame
 
+    def frame_age_sec(self) -> float | None:
+        """Seconds since the last real frame arrived (None before first frame)."""
+        _, _, arrival = self._vs.latest_frame()
+        if not arrival:
+            return None
+        return max(0.0, time.time() - arrival)
+
     def release(self) -> None:
         self._vs.stop()
         print("[CAMERA] GoPro released")
