@@ -24,6 +24,15 @@ models/flood_segmentation/**/SegmentationClass/
 models/flood_segmentation/**/SegmentationObject/
 models/flood_segmentation/**/ImageSets/
 
+# Model weights and build artifacts (large, machine-specific — keep local only).
+# TensorRT engines are bound to the local TensorRT/CUDA build, so a committed
+# engine goes stale after a version bump; re-export with tools/export_tensorrt.py
+# rather than tracking them.
+*.engine
+*.onnx
+*.pt
+*.pth
+
 # IDE / OS
 .idea/
 .vscode/

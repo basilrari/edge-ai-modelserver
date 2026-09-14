@@ -21,7 +21,7 @@ The server starts **idle** and only runs inference when an external LLM (or you 
 
 Combined flood + human runs **in parallel** on separate CUDA streams by default.
 
-**TensorRT engines ship with this repo** — clone and run with `USE_TENSORRT=1` (default). Re-export only if you retrain weights or move to a different Jetson/CUDA build:
+**Detector artifacts are not committed** — weights and TensorRT engines are git-ignored and built locally on the device. Build them once, then run with `USE_TENSORRT=1` (default). Re-export whenever you retrain or move to a different Jetson/CUDA/TensorRT build:
 
 ```bash
 # Re-export ALL TensorRT engines (optional — only if missing or stale)
@@ -34,7 +34,7 @@ python3 tools/export_flood_tensorrt.py
 python3 tools/export_robust_human.py
 ```
 
-Pre-built artifacts in repo (PyTorch + ONNX + TensorRT):
+Artifacts produced by the export scripts (all git-ignored — build them locally):
 
 | Model | `.pt` / `.pth` | `.onnx` | `.engine` |
 |-------|----------------|---------|-----------|
