@@ -39,5 +39,9 @@ models/flood_segmentation/**/ImageSets/
 .DS_Store
 *.Zone.Identifier
 
+# Local environment (per-machine paths, camera serial; see .env.example if present)
+.env
+.env.local
+
 # Ad-hoc runtime frame captures (not benchmark artifacts)
 logs/human_detect_last.jpg
