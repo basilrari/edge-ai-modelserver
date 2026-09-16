@@ -347,7 +347,7 @@ def startup_event():
     print("[SYSTEM] Model server ready (idle — awaiting LLM tool command)")
     print("[SYSTEM] Tools: detect_flood | detect_human | both | idle/stop")
     print(f"[SYSTEM] Gateway proxy: {gateway_base_url()} (GATEWAY_URL to override)")
-    print("[SYSTEM] WebRTC live view: POST /camera/webrtc/offer (SAR frontend /camera)")
+    print("[SYSTEM] WebRTC live view: POST /camera/webrtc/offer, GET /camera/status")
     print("[SYSTEM] Perf: PARALLEL_COMBINED ASYNC_POWER USE_TENSORRT (see core/perf_config.py)")
     try:
         from core.gopro_preview import start_gopro_preview_if_needed

@@ -1,4 +1,9 @@
-"""GoPro UDP capture via drone-competition/perception VideoSource."""
+"""GoPro USB preview via drone-competition/perception VideoSource.
+
+Set CAMERA_BACKEND=gopro and DRONE_PERCEPTION_PATH to the perception repo.
+The preview publishes UDP frames that GoproCameraStream reads for WebRTC and
+detection tools (same get_frame() surface as V4L2 CameraStream).
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""WebRTC live view for the SAR frontend (uses shared V4L2 camera)."""
+"""WebRTC live camera stream for remote viewers (V4L2 or GoPro via shared_camera)."""
 
 from __future__ import annotations
 

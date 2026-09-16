@@ -1,4 +1,8 @@
-"""Start/stop GoPro USB preview from Drone_LLM (single owner for WebRTC stack)."""
+"""Start/stop GoPro USB preview from Drone_LLM.
+
+When CAMERA_BACKEND=gopro, starts perception/gopro_enable.py once at model-server
+startup so WebRTC and inference share the same UDP frame source on the Jetson.
+"""
 
 from __future__ import annotations
 

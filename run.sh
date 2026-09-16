@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start Drone_LLM model server (inference API + WebRTC live view for SAR frontend).
+# Start Drone_LLM model server (inference API + optional WebRTC live view).
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"

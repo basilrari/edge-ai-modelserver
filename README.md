@@ -460,6 +460,28 @@ Regenerate benchmarks: see `benchmarks/README.md` and `tools/run_drone_video_ben
 
 ---
 
+## Live camera (WebRTC + GoPro on Jetson)
+
+Remote viewers can watch the drone camera over WebRTC:
+
+- `POST /camera/webrtc/offer` — browser sends SDP offer, model server returns answer
+- `GET /camera/status` — whether a frame source is connected
+- `GET /camera/snapshot` — single JPEG frame (debug)
+
+**V4L2 (default):** set `CAMERA_DEVICE` if not `/dev/video0`.
+
+**GoPro USB on Jetson:** requires the sibling [drone-competition/perception](https://github.com/aykumar21/drone-competition) repo (GoPro preview → UDP). Example:
+
+```bash
+export CAMERA_BACKEND=gopro
+export DRONE_PERCEPTION_PATH=../drone-competition/perception
+./run.sh
+```
+
+For viewers off the LAN, configure TURN on the Jetson: see [deploy/coturn/README.md](deploy/coturn/README.md). Copy [.env.example](.env.example) to `.env` for local defaults.
+
+---
+
 ## Hardware
 
 - Tested on Jetson Orin with CUDA
